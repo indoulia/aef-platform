@@ -18,3 +18,8 @@ Sequence: S22 -> S23 -> S25 -> S24 -> S26 (dependency-respecting, no parallel im
 - Task S25: complete (commit 11ecfbc on epic-0008/s25, review clean, no fixes needed)
   - Closed the two Minor gaps deferred from S22 (deep `..` past drive root; null/empty root now a deliberate ArgumentException instead of an unguarded framework exception).
   - Remaining Minor note for final whole-branch review: reflection contract test scoped to IRepositoryScanner's surface, not LocalFileSystemRepositoryScanner's full public surface (harmless today; constructor takes only string, returns nothing).
+
+- Task S24: complete (commit 1b059ab on epic-0008/s24, review clean, no fixes needed)
+  - New RepositoryOnboardingAssessmentAgent (Runtime.DomainContent.Onboarding), RepositoryAssessmentBehavior.cs/RepositoryDescriptor.cs confirmed byte-for-byte unchanged.
+  - PCT-EXE-0015/SKL-EXE-0015/AGT-EXE-0007 bumped to v1.2.0 in ai-engineering-framework repo (uncommitted there pending Founder decision on committing that repo's history).
+  - Minor notes for final whole-branch review: no runtime dispatcher yet wires a live PCT-EXE-0015 request to this new class (out of this Story's stated scope); no explicit spy proving StackDetector is never invoked on an unreadable root (inferred from correct output only).
