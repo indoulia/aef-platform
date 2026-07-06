@@ -4,8 +4,11 @@ using Xunit;
 namespace Runtime.Tests.Integration.RepositoryScanning;
 
 // Epic 0008 (epics/0008-local-repository-scanner-implementation.md), Story
-// S23: turning S22's raw, read-only root directory listing into the same
+// S23: turning S22's raw, read-only directory listings into the same
 // PrimaryStack fact PCT-EXE-0015 already consumes, without ever guessing.
+// Extended by Story S27 to cover the bounded-recursion behavior added
+// there (max-depth constant + fixed ignore-list) - see the tests below
+// named for bounded depth, ignored directories, and cross-depth ties.
 // Fixtures are real, minimal, temporary on-disk directories per test - one
 // .csproj, one package.json, one directory with both, one empty directory -
 // never a synthetic in-memory fake, per this Story's own Validation
@@ -116,18 +119,112 @@ public sealed class StackDetectorTests : IDisposable
         Assert.Null(stack);
     }
 
-    // Detection only looks at the root's immediate entries, per S22's own
-    // contract (ListEntries does not recurse) - a marker nested in a
-    // subdirectory must not be picked up.
+    // Story S27 acceptance criterion 1: a marker within the bounded depth
+    // beneath the root - even though the root itself has no recognized
+    // marker - is now found unambiguously. (Superseded S23 behavior: prior
+    // to S27, StackDetector only ever looked at the root's immediate
+    // entries; this nested case used to return undetermined.)
     [Fact]
-    public void MarkerNestedInSubdirectory_IsNotDetected()
+    public void MarkerNestedWithinBoundedDepth_IsDetected()
     {
         Directory.CreateDirectory(Path.Combine(_root.FullName, "nested"));
         File.WriteAllText(Path.Combine(_root.FullName, "nested", "package.json"), "{}");
 
         var stack = StackDetector.DetectPrimaryStack(Scanner());
 
+        Assert.Equal("node", stack);
+    }
+
+    // Story S27 DoD example: a marker two levels beneath an otherwise
+    // markerless root is still within the bound and is detected.
+    [Fact]
+    public void MarkerTwoLevelsBeneathRoot_IsDetected()
+    {
+        var nested = Path.Combine(_root.FullName, "src", "app");
+        Directory.CreateDirectory(nested);
+        File.WriteAllText(Path.Combine(nested, "Sample.csproj"), "<Project />");
+
+        var stack = StackDetector.DetectPrimaryStack(Scanner());
+
+        Assert.Equal("dotnet", stack);
+    }
+
+    // Story S27 acceptance criterion 2: the traversal is bounded by a
+    // fixed max depth - a marker placed beyond it (four levels beneath the
+    // root) is never seen, proving the bound is real and not just
+    // documented.
+    [Fact]
+    public void MarkerBeyondBoundedDepth_ReturnsUndetermined()
+    {
+        var beyondBound = Path.Combine(_root.FullName, "a", "b", "c", "d");
+        Directory.CreateDirectory(beyondBound);
+        File.WriteAllText(Path.Combine(beyondBound, "package.json"), "{}");
+
+        var stack = StackDetector.DetectPrimaryStack(Scanner());
+
         Assert.Null(stack);
+    }
+
+    // Story S27 acceptance criterion 2: a fixed, narrow ignore-list is
+    // never descended into - a marker inside one of those directories
+    // (e.g. node_modules, however shallow) is not treated as a hit.
+    [Fact]
+    public void MarkerInsideIgnoredDirectory_IsNotDetected()
+    {
+        var nodeModules = Path.Combine(_root.FullName, "node_modules");
+        Directory.CreateDirectory(nodeModules);
+        File.WriteAllText(Path.Combine(nodeModules, "Sample.csproj"), "<Project />");
+
+        var stack = StackDetector.DetectPrimaryStack(Scanner());
+
+        Assert.Null(stack);
+    }
+
+    // Story S27 acceptance criterion 3: markers for two different stacks
+    // discovered across two different subdirectories at different depths
+    // within the bound is still an unresolved tie - not just a per-
+    // directory check.
+    [Fact]
+    public void CrossStackTieAcrossDifferentSubdirectoriesAndDepths_ReturnsUndetermined()
+    {
+        var dotnetDir = Path.Combine(_root.FullName, "backend");
+        Directory.CreateDirectory(dotnetDir);
+        File.WriteAllText(Path.Combine(dotnetDir, "Sample.csproj"), "<Project />");
+
+        var nodeDir = Path.Combine(_root.FullName, "frontend", "app");
+        Directory.CreateDirectory(nodeDir);
+        File.WriteAllText(Path.Combine(nodeDir, "package.json"), "{}");
+
+        var stack = StackDetector.DetectPrimaryStack(Scanner());
+
+        Assert.Null(stack);
+    }
+
+    // Story S27 DoD: a deep/wide fixture deliberately exceeding the bound
+    // in both breadth (many root-level siblings) and depth (a chain with
+    // wide fan-out beyond the max depth) still completes quickly, proving
+    // the bound actually limits work done - not just the returned answer.
+    [Fact]
+    public void DeepAndWideFixtureExceedingTheBound_CompletesQuicklyWithoutHangingOrThrowing()
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            Directory.CreateDirectory(Path.Combine(_root.FullName, $"sibling-{i}"));
+        }
+
+        var beyondBound = Path.Combine(_root.FullName, "a", "b", "c");
+        Directory.CreateDirectory(beyondBound);
+        for (var i = 0; i < 1000; i++)
+        {
+            Directory.CreateDirectory(Path.Combine(beyondBound, $"deep-{i}"));
+        }
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        stopwatch.Stop();
+
+        Assert.Null(stack);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"Bounded traversal took too long: {stopwatch.Elapsed}");
     }
 
     [Fact]
