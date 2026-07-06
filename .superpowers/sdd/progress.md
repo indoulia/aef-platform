@@ -23,3 +23,11 @@ Sequence: S22 -> S23 -> S25 -> S24 -> S26 (dependency-respecting, no parallel im
   - New RepositoryOnboardingAssessmentAgent (Runtime.DomainContent.Onboarding), RepositoryAssessmentBehavior.cs/RepositoryDescriptor.cs confirmed byte-for-byte unchanged.
   - PCT-EXE-0015/SKL-EXE-0015/AGT-EXE-0007 bumped to v1.2.0 in ai-engineering-framework repo (uncommitted there pending Founder decision on committing that repo's history).
   - Minor notes for final whole-branch review: no runtime dispatcher yet wires a live PCT-EXE-0015 request to this new class (out of this Story's stated scope); no explicit spy proving StackDetector is never invoked on an unreadable root (inferred from correct output only).
+
+- Task S26: complete AS A DOGFOODING RUN, but its own stated acceptance criterion (primary_stack matches ADR-0007's .NET/net9.0 finding) is NOT met by real evidence.
+  - Real run (temporary harness, not committed, aef-platform confirmed clean afterward) against C:\POC\Ferret: is_readable=true (matches), primary_stack=undetermined/Escalated (does NOT match).
+  - Root cause: S23's root-level-only scan (in-scope, reviewed, correct per its own acceptance criteria) finds no marker at Ferret's root; all 126 real .csproj files are nested under src/tests/etc.
+  - Full comparison report committed locally (no push) to Ferret repo: branch aef/onboarding-ferret-s26-scanner-dogfooding, commit 0437db1, .ai-workspace/reports/s26-scanner-dogfooding-report.md.
+  - NOT unilaterally resolved by expanding S22/S23's already-merged, already-reviewed contracts (would be scope creep beyond the approved Roadmap) - escalated to Founder per POL-GOV-0002 Escalation Authority ("a failed quality gate that cannot be resolved autonomously").
+
+STATUS: S22-S25 complete and merged (aef-platform PRs #8, #9, #10, #11). S26 executed with real, honest findings; Epic 0008's own Definition of Done item 4 is not fully satisfied as literally worded. Awaiting Founder decision before declaring Epic 0008 Stage: Completion.
