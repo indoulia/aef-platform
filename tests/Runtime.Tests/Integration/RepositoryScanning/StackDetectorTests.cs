@@ -200,31 +200,100 @@ public sealed class StackDetectorTests : IDisposable
         Assert.Null(stack);
     }
 
-    // Story S27 DoD: a deep/wide fixture deliberately exceeding the bound
-    // in both breadth (many root-level siblings) and depth (a chain with
-    // wide fan-out beyond the max depth) still completes quickly, proving
-    // the bound actually limits work done - not just the returned answer.
+    // Story S27 DoD: proves the depth bound actually limits the *work
+    // done* (the number of real ListEntries calls made), not merely that
+    // the returned answer happens to be correct or that one particular
+    // fixture shape finishes quickly. A flat fan-out of siblings with no
+    // children of their own cannot distinguish "the bound is enforced"
+    // from "the bound was silently deleted" - an unbounded walk of a flat
+    // fixture is just as fast as a bounded one, since there is nothing
+    // beneath the first level to over-recurse into.
+    //
+    // This fixture instead has genuine exponential fan-out - branching
+    // factor 4, continuing seven levels beneath the root - four levels
+    // past MaxDepthBeneathRoot (3). A correctly depth-3-bounded traversal
+    // visits only the first 85 directories (depths 0-3: 1+4+16+64); an
+    // unbounded traversal of the very same fixture would have to visit
+    // all 21,845 directories (depths 0-7) - two orders of magnitude more.
+    // CountingRepositoryScanner below counts every real ListEntries call
+    // made against a real LocalFileSystemRepositoryScanner over this real
+    // temp-directory fixture - nothing here is mocked or faked; only the
+    // call-counting is test-only instrumentation.
     [Fact]
-    public void DeepAndWideFixtureExceedingTheBound_CompletesQuicklyWithoutHangingOrThrowing()
+    public void DeepAndWideFixtureExceedingTheBound_InstrumentedCallCount_ProvesBoundLimitsWorkDone()
     {
-        for (var i = 0; i < 100; i++)
+        const int branchingFactor = 4;
+        const int levelsBeyondRoot = 7;
+        CreateFanOutTree(_root.FullName, branchingFactor, levelsBeyondRoot);
+
+        var expectedBoundedCallCount = 0;
+        for (var depth = 0; depth <= 3; depth++)
         {
-            Directory.CreateDirectory(Path.Combine(_root.FullName, $"sibling-{i}"));
+            expectedBoundedCallCount += (int)Math.Pow(branchingFactor, depth);
         }
 
-        var beyondBound = Path.Combine(_root.FullName, "a", "b", "c");
-        Directory.CreateDirectory(beyondBound);
-        for (var i = 0; i < 1000; i++)
+        var totalDirectoryCount = 0;
+        for (var depth = 0; depth <= levelsBeyondRoot; depth++)
         {
-            Directory.CreateDirectory(Path.Combine(beyondBound, $"deep-{i}"));
+            totalDirectoryCount += (int)Math.Pow(branchingFactor, depth);
         }
 
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
-        stopwatch.Stop();
+        var scanner = new CountingRepositoryScanner(_root.FullName);
+
+        var stack = StackDetector.DetectPrimaryStack(scanner);
 
         Assert.Null(stack);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"Bounded traversal took too long: {stopwatch.Elapsed}");
+        Assert.Equal(expectedBoundedCallCount, scanner.ListEntriesCallCount);
+        Assert.True(
+            scanner.ListEntriesCallCount < totalDirectoryCount / 100,
+            $"Expected the bounded traversal ({scanner.ListEntriesCallCount} calls) to be at least two " +
+            $"orders of magnitude fewer than the fixture's full {totalDirectoryCount} directories - an " +
+            "unbounded traversal would visit all of them.");
+    }
+
+    // Builds a real on-disk tree with the given branching factor at every
+    // level, continuing for remainingLevels levels beneath path (path
+    // itself is not counted/created here - it is expected to already
+    // exist, e.g. the test's own _root).
+    private static void CreateFanOutTree(string path, int branchingFactor, int remainingLevels)
+    {
+        if (remainingLevels == 0)
+        {
+            return;
+        }
+
+        for (var i = 0; i < branchingFactor; i++)
+        {
+            var child = Path.Combine(path, $"d{i}");
+            Directory.CreateDirectory(child);
+            CreateFanOutTree(child, branchingFactor, remainingLevels - 1);
+        }
+    }
+
+    // Test-only instrumentation (Story S27 review fix): delegates every
+    // call to a real LocalFileSystemRepositoryScanner - unmodified,
+    // unaware it is being counted - while recording how many times
+    // ListEntries is actually invoked, so a test can assert on the amount
+    // of real work performed rather than only on the final returned
+    // value.
+    private sealed class CountingRepositoryScanner : IRepositoryScanner
+    {
+        private readonly LocalFileSystemRepositoryScanner _inner;
+
+        public CountingRepositoryScanner(string root)
+        {
+            _inner = new LocalFileSystemRepositoryScanner(root);
+        }
+
+        public int ListEntriesCallCount { get; private set; }
+
+        public bool IsRootReadable() => _inner.IsRootReadable();
+
+        public RepositoryScanResult ListEntries(string relativePath)
+        {
+            ListEntriesCallCount++;
+            return _inner.ListEntries(relativePath);
+        }
     }
 
     [Fact]
