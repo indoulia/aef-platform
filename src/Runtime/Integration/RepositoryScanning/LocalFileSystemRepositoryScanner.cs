@@ -70,16 +70,23 @@ public sealed class LocalFileSystemRepositoryScanner : IRepositoryScanner
         }
     }
 
-    // Resolves relativePath against the root one path segment at a time,
-    // following any reparse point (symlink or junction) encountered along
-    // the way to its real target before continuing - so a later ".."
+    // Resolves relativePath against the root in a single shot first -
+    // Path.Combine(root, relativePath) returns relativePath verbatim when
+    // it is itself rooted (e.g. "C:\Windows\System32"), so an absolute
+    // input resolves to its own real, ambient-current-directory-independent
+    // target rather than being reinterpreted relative to root. It is only
+    // safe to walk the *resulting* path's segments afterward, one at a
+    // time, following any reparse point (symlink or junction) encountered
+    // along the way to its real target before continuing - so a later ".."
     // segment is evaluated against the resolved, real location, not the
     // pre-link path. Returns null if the final, fully-resolved location
     // falls outside the root.
     private string? ResolveWithinRoot(string relativePath)
     {
-        var current = _root;
-        var segments = relativePath.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+        var combined = Path.GetFullPath(Path.Combine(_root, relativePath));
+
+        var current = Path.GetPathRoot(combined) ?? combined;
+        var segments = combined.Substring(current.Length).Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
 
         foreach (var segment in segments)
         {

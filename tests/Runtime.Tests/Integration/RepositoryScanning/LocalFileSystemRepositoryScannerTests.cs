@@ -189,6 +189,41 @@ public sealed class LocalFileSystemRepositoryScannerTests : IDisposable
         }
     }
 
+    // Guards against a specific regression: resolving relativePath against
+    // root one path-segment at a time turns a genuine absolute path (e.g.
+    // "C:\Windows\System32") into a bare drive-letter token ("C:") once
+    // split into segments, and Path.GetFullPath("C:") resolves relative to
+    // the *process's ambient current directory on that drive* - not the
+    // caller's real absolute target. If Environment.CurrentDirectory
+    // happens to equal the scanner's root, that bug silently reinterprets
+    // an absolute out-of-root path as an in-root path. This test pins
+    // CurrentDirectory to the fixture root before scanning, so it fails
+    // under the buggy segment-by-segment resolution and only passes when
+    // the absolute path is resolved via a single-shot Path.Combine(root,
+    // relativePath), independent of ambient working directory.
+    [Fact]
+    public void AbsolutePathOutsideRoot_RefusesWithStructuredFailure_EvenWhenAmbientCurrentDirectoryIsTheRoot()
+    {
+        var outside = Directory.CreateTempSubdirectory("s22-outside-absolute-cwd-");
+        var originalCurrentDirectory = Environment.CurrentDirectory;
+        try
+        {
+            Environment.CurrentDirectory = _root.FullName;
+            var scanner = new LocalFileSystemRepositoryScanner(_root.FullName);
+
+            var result = scanner.ListEntries(outside.FullName);
+
+            Assert.Equal(RepositoryScanStatus.PathEscapesRoot, result.Status);
+            Assert.Empty(result.Entries);
+            Assert.NotNull(result.FailureReason);
+        }
+        finally
+        {
+            Environment.CurrentDirectory = originalCurrentDirectory;
+            outside.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void ReparsePointResolvingOutsideRoot_RefusesWithStructuredFailure_NeverFollowsTheLinkToListItsRealContent()
     {
