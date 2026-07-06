@@ -14,3 +14,7 @@ Sequence: S22 -> S23 -> S25 -> S24 -> S26 (dependency-respecting, no parallel im
 
 - Task S23: complete (commit abccf97 on epic-0008/s23, review clean, no fixes needed)
   - Minor notes for final whole-branch review: TDD claim not verifiable from single squashed diff (process note only); case-insensitive marker matching is an implementer judgment call, not spec-mandated; non-.NET stack tokens ("node"/"python"/"java"/"rust"/"go") are invented pending S24/controller sign-off.
+
+- Task S25: complete (commit 11ecfbc on epic-0008/s25, review clean, no fixes needed)
+  - Closed the two Minor gaps deferred from S22 (deep `..` past drive root; null/empty root now a deliberate ArgumentException instead of an unguarded framework exception).
+  - Remaining Minor note for final whole-branch review: reflection contract test scoped to IRepositoryScanner's surface, not LocalFileSystemRepositoryScanner's full public surface (harmless today; constructor takes only string, returns nothing).
