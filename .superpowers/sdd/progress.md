@@ -31,3 +31,8 @@ Sequence: S22 -> S23 -> S25 -> S24 -> S26 (dependency-respecting, no parallel im
   - NOT unilaterally resolved by expanding S22/S23's already-merged, already-reviewed contracts (would be scope creep beyond the approved Roadmap) - escalated to Founder per POL-GOV-0002 Escalation Authority ("a failed quality gate that cannot be resolved autonomously").
 
 STATUS: S22-S25 complete and merged (aef-platform PRs #8, #9, #10, #11). S26 executed with real, honest findings; Epic 0008's own Definition of Done item 4 is not fully satisfied as literally worded. Awaiting Founder decision before declaring Epic 0008 Stage: Completion.
+
+- Task S27: complete (commits 62eab96..3431c6e on epic-0008/s27, review clean after 1 fix round). Added per ADR-0012 after S26's real evidence.
+  - Bounded recursion (max depth 3, fixed ignore-list) implemented in StackDetector only; IRepositoryScanner/LocalFileSystemRepositoryScanner untouched; tie/no-match semantics correctly global across the bounded traversal (verified by code trace during review).
+  - Real Ferret re-run (throwaway harness, aef-platform confirmed clean after) still returns undetermined - NOT a defect: Ferret genuinely has both dotnet (.csproj under src/) and node (Ferret.Npm/package.json) markers within the 3-level bound, a real cross-stack tie the "never guess" discipline correctly refuses to resolve. Independently confirmed against the live Ferret checkout during review.
+  - This is a NEW, deeper finding than S26's original one (which was about scan range, now fixed) - Ferret is a genuine polyglot repository, not solely .NET. Escalating to Founder per POL-GOV-0002 before attempting Ferret Run 3.
