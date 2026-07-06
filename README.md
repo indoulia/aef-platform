@@ -6,7 +6,7 @@ Hosts the Runtime Kernel and, eventually, the fifteen platform Construction Unit
 
 ## Status
 
-**Epic 0004 (Epic-Granularity Autonomous Lifecycle, CU-2) in progress: Story S16 done, S17-S18 not yet started.** `SKL-EXE-0012`/`AGT-EXE-0005` (Next-Eligible-Item Discovery) are Registered and Active, implemented as `src/Runtime/DomainContent/EpicLifecycle/`. See `epics/0004-epic-granularity-autonomous-lifecycle.md` in the AEF repository for the full Story decomposition and Definition of Done.
+**Epic 0004 (Epic-Granularity Autonomous Lifecycle, CU-2) in progress: Stories S16-S17 done, S18 not yet started.** `SKL-EXE-0012`/`AGT-EXE-0005` (Next-Eligible-Item Discovery) and `SKL-EXE-0013`/`SKL-EXE-0014`/`AGT-EXE-0006`/`WFL-DEL-0004` (Epic-Granularity Lifecycle Adaptation) are Registered and Active, implemented as `src/Runtime/DomainContent/EpicLifecycle/` and `src/Runtime/Orchestration/EpicLifecycleOrchestrator.cs`. See `epics/0004-epic-granularity-autonomous-lifecycle.md` in the AEF repository for the full Story decomposition and Definition of Done.
 
 **Epic 0001 (Runtime Kernel Construction) complete: all four Stories (S1-S4) done.** The Kernel exposes three public contracts (I4 §8) — a Registration Contract, an Activation Contract, and a Discovery read-contract — all implemented, composed, and bootable through a single `KernelBootstrapper.Boot()` entry point (`src/Kernel/Bootstrapping/`). See `epics/0001-runtime-kernel-construction.md` in the AEF repository for the full Story decomposition and Definition of Done.
 
@@ -43,5 +43,7 @@ Hosts the Runtime Kernel and, eventually, the fifteen platform Construction Unit
 ### `Epic 0004` (Epic-Granularity Autonomous Lifecycle, CU-2 second Epic)
 
 - `src/Runtime/DomainContent/EpicLifecycle/` — the executable realization of `SKL-EXE-0012`'s Behavior (S16): `CandidateItem` (one candidate-table row), `DiscoveryOutcome` (`Eligible`/`NoneEligible`/`Ambiguous`), `NextEligibleItemDiscoveryBehavior` (queries the unmodified Runtime Catalog per candidate; never mutates the candidate table it is handed). Does not touch `DomainContent/FeatureLifecycle/` or `AGT-EXE-0002` — a new, Epic-scoped folder, per the Epic's own explicit non-goal.
-- `tests/Runtime.Tests/DomainContent/EpicLifecycle/` — `NextEligibleItemDiscoveryBehaviorTests` (4 tests, one per S16 acceptance criterion).
-- `tests/Runtime.Tests/Scenarios/NextEligibleItemDiscoveryRegistrationTests.cs` — registers `SKL-EXE-0012`/`AGT-EXE-0005` and proves the Skill invocable through the Skill Host's public contract (2 tests).
+- `tests/Runtime.Tests/DomainContent/EpicLifecycle/` — `NextEligibleItemDiscoveryBehaviorTests` (4 tests, S16); `EpicIntakeAndClarificationBehaviorTests`, `EpicRoadmapAndPlanningBehaviorTests` (S17: `EpicWorkspace`, `EpicIntakeAndClarificationBehavior`, `EpicRoadmapAndPlanningBehavior` — the Epic-scoped, independent siblings of `FeatureLifecycle`'s equivalents; no dependency between the two namespaces).
+- `tests/Runtime.Tests/Scenarios/NextEligibleItemDiscoveryRegistrationTests.cs` — registers `SKL-EXE-0012`/`AGT-EXE-0005` and proves the Skill invocable through the Skill Host's public contract (S16, 2 tests).
+- `tests/Runtime.Tests/Scenarios/EpicLifecycleContentRegistrationTests.cs` — registers `SKL-EXE-0013`/`0014`/`AGT-EXE-0006`/`WFL-DEL-0004` (S17, 1 test).
+- `src/Runtime/Orchestration/EpicLifecycleOrchestrator.cs` (S17) — the Epic-scoped sibling of `FeatureLifecycleOrchestrator`, bound to `WFL-DEL-0004`/`AGT-EXE-0006`; reuses `StrategyHost`/`SessionTransitions`/`ReviewDecision`/`GateResumeResult`/`OrchestrationStartResult` verbatim. `tests/Runtime.Tests/Orchestration/EpicLifecycleOrchestratorTests.cs`, `EpicHumanApprovalGateRoutingTests.cs` (5 tests).
