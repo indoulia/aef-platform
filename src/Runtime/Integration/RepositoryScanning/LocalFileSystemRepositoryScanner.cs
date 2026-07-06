@@ -14,6 +14,23 @@ public sealed class LocalFileSystemRepositoryScanner : IRepositoryScanner
 
     public LocalFileSystemRepositoryScanner(string root)
     {
+        // A null/empty root is a caller-contract violation, not a
+        // runtime environmental failure: an adapter cannot enforce a
+        // boundary it was never given one to enforce. Guarding
+        // explicitly here turns what would otherwise be an unguarded,
+        // incidental ArgumentNullException/ArgumentException from
+        // Path.GetFullPath (Epic 0008, Story S25) into a deliberate,
+        // documented one - consistent with this contract's "structured
+        // failure, never an incidental exception" discipline, even
+        // though this particular failure is a thrown exception rather
+        // than a RepositoryScanResult (that shape is reserved for
+        // failures only discoverable once a root and a call are both in
+        // hand, e.g. root-not-readable or path-escapes-root).
+        if (string.IsNullOrEmpty(root))
+        {
+            throw new ArgumentException("Root path must not be null or empty; the scanner has no boundary to enforce without one.", nameof(root));
+        }
+
         _root = Path.GetFullPath(root);
     }
 
