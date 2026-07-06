@@ -11,6 +11,41 @@ namespace Runtime.Tests.Integration.RepositoryScanning;
 // root-bounded). Fixtures are real, temporary on-disk directories created
 // per test and cleaned up afterward, never a synthetic in-memory fake,
 // per this Epic's own Validation strategy.
+//
+// Story S25 traceability note (criterion -> proving test method(s)):
+// this maps S25's acceptance criteria directly to the test methods that
+// prove them, so a future reader does not have to re-derive coverage
+// from scratch.
+//
+// AC1 - path-traversal attempt (".." , absolute path outside the root,
+// or a symlink resolving outside the root) returns a structured failure
+// and performs no read outside the boundary:
+//   - ".." (single level, in-tree sibling)
+//       -> DotDotTraversal_RefusesWithStructuredFailure_NeverThrowsNeverTruncates
+//   - ".." walked past the filesystem's own drive root (S25 gap, closed here)
+//       -> DeeplyNestedDotDotTraversal_PastTheFilesystemRootItself_RefusesWithStructuredFailure
+//   - absolute path outside the root
+//       -> AbsolutePathOutsideRoot_RefusesWithStructuredFailure
+//       -> AbsolutePathOutsideRoot_RefusesWithStructuredFailure_EvenWhenAmbientCurrentDirectoryIsTheRoot
+//   - symlink (NTFS junction) resolving outside the root, proving no
+//     content read across the boundary (RepositoryEntry never carries
+//     content, and the escaping call returns zero entries)
+//       -> ReparsePointResolvingOutsideRoot_RefusesWithStructuredFailure_NeverFollowsTheLinkToListItsRealContent
+//
+// AC2 - the adapter's full public type surface has zero write- or
+// process-execution-capable members, by static/reflective inspection:
+//   - parameter types (S22)
+//       -> Contract_HasNoNetworkCredentialOrProcessExecutionMember
+//   - return types (S25 gap, closed here)
+//       -> Contract_NoMemberReturnsAWriteOrProcessExecutionCapableType
+//
+// Related hardening (not one of the two numbered ACs above, but part of
+// this Story's "structured failure, never an incidental exception"
+// discipline; S25 gap, closed here): a null/empty root is a
+// caller-contract violation rejected with a deliberate, documented
+// ArgumentException rather than an unguarded framework exception from
+// Path.GetFullPath.
+//   -> NullOrEmptyRoot_ThrowsArgumentException_WithClearMessage
 public sealed class LocalFileSystemRepositoryScannerTests : IDisposable
 {
     private readonly DirectoryInfo _root;
@@ -66,6 +101,41 @@ public sealed class LocalFileSystemRepositoryScannerTests : IDisposable
         // remote system or spawning a process.
         var allowedParameterTypes = new[] { typeof(string) };
         Assert.All(parameterTypes, t => Assert.Contains(t, allowedParameterTypes));
+    }
+
+    // Story S25 gap: S22's reflection contract test above only inspected
+    // parameter types. A member could just as easily be write- or
+    // process-execution-capable through its *return* type (e.g. a
+    // hypothetical method handing back a writable Stream/FileStream, or
+    // a live Process). IRepositoryScanner's actual surface returns only
+    // bool and RepositoryScanResult - both closed, inert data shapes -
+    // but this asserts that mechanically, so a future member added to
+    // the interface cannot silently reintroduce a write- or
+    // execution-capable return type without failing this test.
+    [Fact]
+    public void Contract_NoMemberReturnsAWriteOrProcessExecutionCapableType()
+    {
+        var writeOrExecutionCapableKeywords = new[]
+        {
+            "stream", "writer", "process", "handle", "socket", "pipe",
+        };
+
+        var interfaceType = typeof(IRepositoryScanner);
+        var returnTypes = interfaceType.GetMethods().Select(m => m.ReturnType).ToList();
+
+        foreach (var returnType in returnTypes)
+        {
+            var typeName = returnType.Name.ToLowerInvariant();
+            Assert.False(
+                writeOrExecutionCapableKeywords.Any(keyword => typeName.Contains(keyword)),
+                $"Return type '{returnType.Name}' looks write- or process-execution-capable, which IRepositoryScanner must never expose.");
+        }
+
+        // The only return shapes this contract may expose are closed,
+        // inert data - never a live handle, stream, or process object
+        // that could be written to or used to execute code.
+        var allowedReturnTypes = new[] { typeof(bool), typeof(RepositoryScanResult) };
+        Assert.All(returnTypes, t => Assert.Contains(t, allowedReturnTypes));
     }
 
     [Fact]
@@ -252,6 +322,56 @@ public sealed class LocalFileSystemRepositoryScannerTests : IDisposable
         {
             outside.Delete(recursive: true);
         }
+    }
+
+    // Story S25 gap: only a single ".." level was tested by S22. A path
+    // that walks ".." far enough to run past the filesystem's own drive
+    // root (e.g. "../../../../../../../../etc") does not throw on
+    // Windows - Path.GetFullPath simply clamps at the drive root and
+    // keeps resolving remaining segments from there - so this exercises
+    // a distinct code path from a single in-tree ".." (which resolves to
+    // a real sibling directory). This proves the escape is caught by the
+    // deliberate root-boundary check (IsWithinRoot), not by an
+    // accidental exception from an out-of-range path: GetFullPath never
+    // throws for excessive ".." segments, so if this test passed only
+    // because of the generic catch-and-fail-safe in ListEntries, that
+    // would itself be a red flag worth knowing about, not a coincidence
+    // to rely on.
+    [Fact]
+    public void DeeplyNestedDotDotTraversal_PastTheFilesystemRootItself_RefusesWithStructuredFailure()
+    {
+        var scanner = new LocalFileSystemRepositoryScanner(_root.FullName);
+        var farPastRoot = string.Concat(Enumerable.Repeat(".." + Path.DirectorySeparatorChar, 20)) + "etc";
+
+        var result = scanner.ListEntries(farPastRoot);
+
+        Assert.Equal(RepositoryScanStatus.PathEscapesRoot, result.Status);
+        Assert.Empty(result.Entries);
+        Assert.NotNull(result.FailureReason);
+    }
+
+    // Story S25 gap: a null or empty root previously reached
+    // Path.GetFullPath(root) unguarded, surfacing .NET's own
+    // ArgumentNullException/ArgumentException with a generic framework
+    // message. Since this Story's purpose is proving the isolation
+    // boundary fails in a structured, deliberate way rather than by
+    // incidental exception, the constructor now guards explicitly. This
+    // is a caller-contract violation (an adapter cannot enforce a
+    // boundary it was never given), not a runtime environmental failure
+    // like a missing directory, so throwing (rather than a
+    // RepositoryScanResult failure, which is reserved for failures
+    // discoverable only once a root and a call are both in hand) is the
+    // right shape here - but the exception and its message must be
+    // deliberate and documented, not a default framework one.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void NullOrEmptyRoot_ThrowsArgumentException_WithClearMessage(string? root)
+    {
+        var exception = Assert.Throws<ArgumentException>(() => new LocalFileSystemRepositoryScanner(root!));
+
+        Assert.Equal("root", exception.ParamName);
+        Assert.Contains("must not be null or empty", exception.Message);
     }
 
     private static void CreateDirectoryJunction(string linkPath, string targetPath)
