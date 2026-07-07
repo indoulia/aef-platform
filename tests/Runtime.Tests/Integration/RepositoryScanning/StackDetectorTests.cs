@@ -4,22 +4,29 @@ using Xunit;
 namespace Runtime.Tests.Integration.RepositoryScanning;
 
 // Epic 0008 (epics/0008-local-repository-scanner-implementation.md), Story
-// S23: turning S22's raw, read-only directory listings into the same
-// PrimaryStack fact PCT-EXE-0015 already consumes, without ever guessing.
-// Extended by Story S27 to cover the bounded-recursion behavior added
-// there (max-depth constant + fixed ignore-list) - see the tests below
-// named for bounded depth, ignored directories, and cross-depth ties.
+// S23: turning S22's raw, read-only directory listings into an evidenced
+// Technology Inventory, without ever guessing. Extended by Story S27 to
+// cover bounded-recursion (max-depth constant + fixed ignore-list). Extended
+// by Story S28 (ADR-0013, docs/aep/ARB-Repository-Technology-Domain-Model.md)
+// to return a three-valued TechnologyDetectionResult - Detected/
+// ConfirmedEmpty/Inconclusive - instead of a scalar `string?` that
+// collapsed "confirmed nothing here" and "could not tell" into the same
+// null, and that forced a cross-stack tie to be treated as an unresolved
+// ambiguity rather than the normal, expected Hybrid case.
+//
 // Fixtures are real, minimal, temporary on-disk directories per test - one
-// .csproj, one package.json, one directory with both, one empty directory -
-// never a synthetic in-memory fake, per this Story's own Validation
-// strategy.
+// .csproj, one package.json, one directory with both, one empty directory,
+// and (new for S28) one directory whose listing is made to fail via a
+// test-only fault-injecting IRepositoryScanner - never a synthetic
+// in-memory fake for the filesystem behavior itself, per this Story's own
+// Validation strategy.
 public sealed class StackDetectorTests : IDisposable
 {
     private readonly DirectoryInfo _root;
 
     public StackDetectorTests()
     {
-        _root = Directory.CreateTempSubdirectory("s23-stack-detector-tests-");
+        _root = Directory.CreateTempSubdirectory("s28-stack-detector-tests-");
     }
 
     public void Dispose()
@@ -36,103 +43,118 @@ public sealed class StackDetectorTests : IDisposable
 
     private LocalFileSystemRepositoryScanner Scanner() => new(_root.FullName);
 
+    private static string[] Names(TechnologyDetectionResult result) =>
+        result.Technologies.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+
     // Acceptance criterion 1: exactly one recognized stack's marker file ->
-    // that stack, unambiguously.
+    // Detected, unambiguously, with a non-empty Basis.
     [Fact]
-    public void SingleDotNetMarker_ReturnsDotnetUnambiguously()
+    public void SingleDotNetMarker_ReturnsDetectedWithDotnet()
     {
         File.WriteAllText(Path.Combine(_root.FullName, "Sample.csproj"), "<Project />");
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Equal("dotnet", stack);
+        Assert.Equal(TechnologyDetectionStatus.Detected, result.Status);
+        Assert.Equal(new[] { "dotnet" }, Names(result));
+        Assert.False(string.IsNullOrWhiteSpace(result.Technologies.Single().Basis));
     }
 
     [Fact]
-    public void SingleNodeMarker_ReturnsNodeUnambiguously()
+    public void SingleNodeMarker_ReturnsDetectedWithNode()
     {
         File.WriteAllText(Path.Combine(_root.FullName, "package.json"), "{}");
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Equal("node", stack);
+        Assert.Equal(TechnologyDetectionStatus.Detected, result.Status);
+        Assert.Equal(new[] { "node" }, Names(result));
     }
 
     // Note (per this Story's own acceptance criteria): multiple marker
-    // files for the *same* stack is still a single-stack, unambiguous
-    // case - AC1, not AC2's tie.
+    // files for the *same* stack is still a single-entry Detected result -
+    // AC1, not a Hybrid case.
     [Fact]
-    public void MultipleMarkersForTheSameStack_StillReturnsThatStackUnambiguously()
+    public void MultipleMarkersForTheSameStack_StillReturnsOneDetectedEntry()
     {
         File.WriteAllText(Path.Combine(_root.FullName, "Sample.csproj"), "<Project />");
         File.WriteAllText(Path.Combine(_root.FullName, "Sample.sln"), "Microsoft Visual Studio Solution File");
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Equal("dotnet", stack);
+        Assert.Equal(TechnologyDetectionStatus.Detected, result.Status);
+        Assert.Equal(new[] { "dotnet" }, Names(result));
     }
 
-    // Acceptance criterion 2: markers for two or more *different* stacks,
-    // with no documented precedence rule - undetermined, never an
-    // arbitrary pick.
+    // Story S28's own reversal of S23's original acceptance criterion 2:
+    // markers for two or more *different* stacks are the normal, evidenced
+    // Hybrid case - Detected with both entries - never collapsed into an
+    // "undetermined" tie (docs/aep/ARB-Repository-Technology-Domain-Model.md
+    // §1.2, INV-2). This is the exact real-world case (Ferret: .NET +
+    // Node.js) that motivated ADR-0013.
     [Fact]
-    public void MarkersForTwoDifferentStacks_ReturnsUndetermined_NeverGuesses()
+    public void MarkersForTwoDifferentStacks_ReturnsDetectedWithBoth_NeverCollapsesToUndetermined()
     {
         File.WriteAllText(Path.Combine(_root.FullName, "Sample.csproj"), "<Project />");
         File.WriteAllText(Path.Combine(_root.FullName, "package.json"), "{}");
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Null(stack);
+        Assert.Equal(TechnologyDetectionStatus.Detected, result.Status);
+        Assert.Equal(new[] { "dotnet", "node" }, Names(result));
+        Assert.All(result.Technologies, t => Assert.False(string.IsNullOrWhiteSpace(t.Basis)));
     }
 
-    // Acceptance criterion 3: no recognized marker file anywhere at the
-    // root - undetermined.
+    // Acceptance criterion 3 (S23): no recognized marker file anywhere
+    // within the bound, with a fully completed traversal - a confirmed,
+    // confident absence, never conflated with "could not tell"
+    // (INV-3).
     [Fact]
-    public void NoRecognizedMarker_ReturnsUndetermined()
+    public void NoRecognizedMarker_ReturnsConfirmedEmpty_NotInconclusive()
     {
         File.WriteAllText(Path.Combine(_root.FullName, "README.md"), "hello");
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Null(stack);
+        Assert.Equal(TechnologyDetectionStatus.ConfirmedEmpty, result.Status);
+        Assert.Empty(result.Technologies);
     }
 
     [Fact]
-    public void EmptyDirectory_ReturnsUndetermined()
+    public void EmptyDirectory_ReturnsConfirmedEmpty_NotInconclusive()
     {
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Null(stack);
+        Assert.Equal(TechnologyDetectionStatus.ConfirmedEmpty, result.Status);
+        Assert.Empty(result.Technologies);
     }
 
     // Detection is by marker *file* - a directory that happens to share a
     // marker's exact name (e.g. a "package.json" directory) is not a
     // marker file and must not be mistaken for one.
     [Fact]
-    public void MarkerNameThatIsActuallyADirectory_IsNotTreatedAsAMarker()
+    public void MarkerNameThatIsActuallyADirectory_IsNotTreatedAsAMarker_ReturnsConfirmedEmpty()
     {
         Directory.CreateDirectory(Path.Combine(_root.FullName, "package.json"));
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Null(stack);
+        Assert.Equal(TechnologyDetectionStatus.ConfirmedEmpty, result.Status);
     }
 
     // Story S27 acceptance criterion 1: a marker within the bounded depth
     // beneath the root - even though the root itself has no recognized
-    // marker - is now found unambiguously. (Superseded S23 behavior: prior
-    // to S27, StackDetector only ever looked at the root's immediate
-    // entries; this nested case used to return undetermined.)
+    // marker - is still Detected unambiguously.
     [Fact]
     public void MarkerNestedWithinBoundedDepth_IsDetected()
     {
         Directory.CreateDirectory(Path.Combine(_root.FullName, "nested"));
         File.WriteAllText(Path.Combine(_root.FullName, "nested", "package.json"), "{}");
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Equal("node", stack);
+        Assert.Equal(TechnologyDetectionStatus.Detected, result.Status);
+        Assert.Equal(new[] { "node" }, Names(result));
     }
 
     // Story S27 DoD example: a marker two levels beneath an otherwise
@@ -144,48 +166,51 @@ public sealed class StackDetectorTests : IDisposable
         Directory.CreateDirectory(nested);
         File.WriteAllText(Path.Combine(nested, "Sample.csproj"), "<Project />");
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Equal("dotnet", stack);
+        Assert.Equal(TechnologyDetectionStatus.Detected, result.Status);
+        Assert.Equal(new[] { "dotnet" }, Names(result));
     }
 
     // Story S27 acceptance criterion 2: the traversal is bounded by a
     // fixed max depth - a marker placed beyond it (four levels beneath the
-    // root) is never seen, proving the bound is real and not just
-    // documented.
+    // root) is never seen. This is still a confirmed-empty-within-bound
+    // result, not an inconclusive one - the bound itself is a documented
+    // design limit, not a scan failure.
     [Fact]
-    public void MarkerBeyondBoundedDepth_ReturnsUndetermined()
+    public void MarkerBeyondBoundedDepth_ReturnsConfirmedEmpty()
     {
         var beyondBound = Path.Combine(_root.FullName, "a", "b", "c", "d");
         Directory.CreateDirectory(beyondBound);
         File.WriteAllText(Path.Combine(beyondBound, "package.json"), "{}");
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Null(stack);
+        Assert.Equal(TechnologyDetectionStatus.ConfirmedEmpty, result.Status);
     }
 
     // Story S27 acceptance criterion 2: a fixed, narrow ignore-list is
     // never descended into - a marker inside one of those directories
     // (e.g. node_modules, however shallow) is not treated as a hit.
     [Fact]
-    public void MarkerInsideIgnoredDirectory_IsNotDetected()
+    public void MarkerInsideIgnoredDirectory_IsNotDetected_ReturnsConfirmedEmpty()
     {
         var nodeModules = Path.Combine(_root.FullName, "node_modules");
         Directory.CreateDirectory(nodeModules);
         File.WriteAllText(Path.Combine(nodeModules, "Sample.csproj"), "<Project />");
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Null(stack);
+        Assert.Equal(TechnologyDetectionStatus.ConfirmedEmpty, result.Status);
     }
 
-    // Story S27 acceptance criterion 3: markers for two different stacks
-    // discovered across two different subdirectories at different depths
-    // within the bound is still an unresolved tie - not just a per-
-    // directory check.
+    // Story S27 acceptance criterion 3, re-stated for S28: markers for two
+    // different stacks discovered across two different subdirectories at
+    // different depths within the bound are still both Detected together -
+    // the accumulation is over the *whole* bounded traversal, not
+    // per-directory.
     [Fact]
-    public void CrossStackTieAcrossDifferentSubdirectoriesAndDepths_ReturnsUndetermined()
+    public void TwoDifferentStacksAcrossDifferentSubdirectoriesAndDepths_AreBothDetected()
     {
         var dotnetDir = Path.Combine(_root.FullName, "backend");
         Directory.CreateDirectory(dotnetDir);
@@ -195,30 +220,51 @@ public sealed class StackDetectorTests : IDisposable
         Directory.CreateDirectory(nodeDir);
         File.WriteAllText(Path.Combine(nodeDir, "package.json"), "{}");
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Null(stack);
+        Assert.Equal(TechnologyDetectionStatus.Detected, result.Status);
+        Assert.Equal(new[] { "dotnet", "node" }, Names(result));
+    }
+
+    // Story S28: a subdirectory listing that fails for a reason unrelated
+    // to what the repository actually contains (simulated here via a
+    // test-only fault-injecting IRepositoryScanner, since OS-level
+    // permission denial is not reliably portable in a unit test) makes
+    // the *entire* detection Inconclusive - never silently treated as "no
+    // marker here," and never conflated with ConfirmedEmpty (INV-2/INV-3).
+    [Fact]
+    public void SubdirectoryListingFails_ReturnsInconclusive_DistinctFromConfirmedEmpty()
+    {
+        Directory.CreateDirectory(Path.Combine(_root.FullName, "blocked"));
+        var scanner = new FaultInjectingRepositoryScanner(_root.FullName, failAtRelativePath: "blocked");
+
+        var result = StackDetector.DetectTechnologies(scanner);
+
+        Assert.Equal(TechnologyDetectionStatus.Inconclusive, result.Status);
+        Assert.Empty(result.Technologies);
+    }
+
+    // A genuinely unreadable root (the scanner's own IsRootReadable would
+    // be false) reaching DetectTechnologies directly - defensive, since
+    // real callers check IsRootReadable first (Epic 0008, Story S24) - is
+    // Inconclusive, not ConfirmedEmpty: this method never had the chance
+    // to confirm anything.
+    [Fact]
+    public void UnreadableRoot_ReturnsInconclusive_NeverThrows()
+    {
+        var missingRoot = Path.Combine(_root.FullName, "does-not-exist");
+        var scanner = new LocalFileSystemRepositoryScanner(missingRoot);
+
+        var result = StackDetector.DetectTechnologies(scanner);
+
+        Assert.Equal(TechnologyDetectionStatus.Inconclusive, result.Status);
     }
 
     // Story S27 DoD: proves the depth bound actually limits the *work
     // done* (the number of real ListEntries calls made), not merely that
-    // the returned answer happens to be correct or that one particular
-    // fixture shape finishes quickly. A flat fan-out of siblings with no
-    // children of their own cannot distinguish "the bound is enforced"
-    // from "the bound was silently deleted" - an unbounded walk of a flat
-    // fixture is just as fast as a bounded one, since there is nothing
-    // beneath the first level to over-recurse into.
-    //
-    // This fixture instead has genuine exponential fan-out - branching
-    // factor 4, continuing seven levels beneath the root - four levels
-    // past MaxDepthBeneathRoot (3). A correctly depth-3-bounded traversal
-    // visits only the first 85 directories (depths 0-3: 1+4+16+64); an
-    // unbounded traversal of the very same fixture would have to visit
-    // all 21,845 directories (depths 0-7) - two orders of magnitude more.
-    // CountingRepositoryScanner below counts every real ListEntries call
-    // made against a real LocalFileSystemRepositoryScanner over this real
-    // temp-directory fixture - nothing here is mocked or faked; only the
-    // call-counting is test-only instrumentation.
+    // the returned answer happens to be correct. See the original S27
+    // comment (preserved in git history) for the exponential-fan-out
+    // rationale; unchanged by S28 beyond the return-shape assertion.
     [Fact]
     public void DeepAndWideFixtureExceedingTheBound_InstrumentedCallCount_ProvesBoundLimitsWorkDone()
     {
@@ -240,9 +286,9 @@ public sealed class StackDetectorTests : IDisposable
 
         var scanner = new CountingRepositoryScanner(_root.FullName);
 
-        var stack = StackDetector.DetectPrimaryStack(scanner);
+        var result = StackDetector.DetectTechnologies(scanner);
 
-        Assert.Null(stack);
+        Assert.Equal(TechnologyDetectionStatus.ConfirmedEmpty, result.Status);
         Assert.Equal(expectedBoundedCallCount, scanner.ListEntriesCallCount);
         Assert.True(
             scanner.ListEntriesCallCount < totalDirectoryCount / 100,
@@ -296,15 +342,33 @@ public sealed class StackDetectorTests : IDisposable
         }
     }
 
-    [Fact]
-    public void UnreadableRoot_ReturnsUndetermined_NeverThrows()
+    // Test-only fault injection (Story S28): wraps a real
+    // LocalFileSystemRepositoryScanner but forces one specific relative
+    // path's listing to fail with a structured, real RepositoryScanStatus -
+    // exercising the Inconclusive outcome deterministically and portably,
+    // without relying on OS-level permission APIs.
+    private sealed class FaultInjectingRepositoryScanner : IRepositoryScanner
     {
-        var missingRoot = Path.Combine(_root.FullName, "does-not-exist");
-        var scanner = new LocalFileSystemRepositoryScanner(missingRoot);
+        private readonly LocalFileSystemRepositoryScanner _inner;
+        private readonly string _failAtRelativePath;
 
-        var stack = StackDetector.DetectPrimaryStack(scanner);
+        public FaultInjectingRepositoryScanner(string root, string failAtRelativePath)
+        {
+            _inner = new LocalFileSystemRepositoryScanner(root);
+            _failAtRelativePath = failAtRelativePath;
+        }
 
-        Assert.Null(stack);
+        public bool IsRootReadable() => _inner.IsRootReadable();
+
+        public RepositoryScanResult ListEntries(string relativePath)
+        {
+            if (relativePath == _failAtRelativePath)
+            {
+                return RepositoryScanResult.Failure(RepositoryScanStatus.RootNotReadable, "Simulated read failure for test purposes (Story S28 fault injection).");
+            }
+
+            return _inner.ListEntries(relativePath);
+        }
     }
 
     [Theory]
@@ -315,12 +379,13 @@ public sealed class StackDetectorTests : IDisposable
     [InlineData("build.gradle", "java")]
     [InlineData("Cargo.toml", "rust")]
     [InlineData("go.mod", "go")]
-    public void SingleMarkerForEachRemainingStack_ReturnsThatStackUnambiguously(string markerFileName, string expectedStack)
+    public void SingleMarkerForEachRemainingStack_ReturnsDetectedWithThatStack(string markerFileName, string expectedStack)
     {
         File.WriteAllText(Path.Combine(_root.FullName, markerFileName), "marker");
 
-        var stack = StackDetector.DetectPrimaryStack(Scanner());
+        var result = StackDetector.DetectTechnologies(Scanner());
 
-        Assert.Equal(expectedStack, stack);
+        Assert.Equal(TechnologyDetectionStatus.Detected, result.Status);
+        Assert.Equal(new[] { expectedStack }, Names(result));
     }
 }

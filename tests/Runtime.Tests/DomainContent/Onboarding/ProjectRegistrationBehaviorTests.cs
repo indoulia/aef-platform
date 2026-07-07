@@ -1,4 +1,5 @@
 using Runtime.DomainContent.Onboarding;
+using Runtime.Integration.RepositoryScanning;
 using Xunit;
 
 namespace Runtime.Tests.DomainContent.Onboarding;
@@ -8,13 +9,16 @@ namespace Runtime.Tests.DomainContent.Onboarding;
 // Covers both S20 acceptance criteria: a non-colliding Draft PPR/TPR pair
 // registers with an initialized workspace and pinned sync; a colliding Id
 // escalates as a Terminal Failure rather than silently overwriting.
+// TechnologyProfileDraft's shape amended per ADR-0013 / Epic 0008 Story
+// S28 - this Story's own logic is otherwise untouched, confirmed by
+// inspection (no production code here reads .Technologies).
 public class ProjectRegistrationBehaviorTests
 {
     private static ProjectProfileDraft SampleProjectProfile(string id = "PPR-PRJ-sample-repo") =>
         new(id, "sample-repo", Adopted: new[] { "STD-GOV-0001" }, Deferred: new[] { "STD-QUA-0001" });
 
     private static TechnologyProfileDraft SampleTechnologyProfile(string id = "TPR-PRJ-sample-repo") =>
-        new(id, "dotnet");
+        new(id, new[] { new TechnologyEvidence("dotnet", "Sample.csproj at repository root") });
 
     [Fact]
     public void NonCollidingProfiles_Registers_WithWorkspaceAndPinnedSync()
