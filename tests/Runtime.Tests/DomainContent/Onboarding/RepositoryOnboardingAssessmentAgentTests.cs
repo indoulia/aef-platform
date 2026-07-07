@@ -1,13 +1,18 @@
 using Runtime.DomainContent.Onboarding;
+using Runtime.Integration.RepositoryScanning;
 using Xunit;
 
 namespace Runtime.Tests.DomainContent.Onboarding;
 
 // Epic 0008 (epics/0008-local-repository-scanner-implementation.md), Story
-// S24: AGT-EXE-0007's composition realization wiring the S22/S23
+// S24: AGT-EXE-0007's composition realization wiring the S22/S23/S27
 // Integration Adapter Boundary into the already-governed onboarding path,
-// per PCT-EXE-0015 v1.2.0's amended Input contract - without re-touching
-// RepositoryAssessmentBehavior.cs at all.
+// per PCT-EXE-0015's amended Input contract - without re-touching
+// RepositoryAssessmentBehavior.cs (until Story S28, which does touch it -
+// see epics/decisions/0014-...md and the Behavior's own amended Definition
+// of Done). Amended by Story S28 (ADR-0013): DeriveDescriptor now derives
+// a three-valued TechnologyDetectionResult instead of a scalar
+// PrimaryStack.
 //
 // AC2 (regression) - the existing "already-known RepositoryDescriptor"
 // calling convention must remain byte-for-byte identical to constructing
@@ -43,11 +48,11 @@ public sealed class RepositoryOnboardingAssessmentAgentTests : IDisposable
     }
 
     private static RepositoryDescriptor ReadableRepository(string name = "sample-repo") =>
-        new(name, IsReadable: true, PrimaryStack: "dotnet");
+        new(name, IsReadable: true, TechnologyDetectionResult.Detected(new[] { new TechnologyEvidence("dotnet", "Sample.csproj at repository root") }));
 
-    // Mirrors RepositoryAssessmentBehaviorTests.ReadableRepositoryWithDeterminedStack_ProducesDraftTechnologyAndProjectProfiles
+    // Mirrors RepositoryAssessmentBehaviorTests.ReadableRepositoryWithDetectedTechnology_ProducesDraftTechnologyAndProjectProfiles
     [Fact]
-    public void DirectDescriptorConvention_ReadableRepositoryWithDeterminedStack_ProducesDraftTechnologyAndProjectProfiles_IdenticalToBehaviorDirectly()
+    public void DirectDescriptorConvention_ReadableRepositoryWithDetectedTechnology_ProducesDraftTechnologyAndProjectProfiles_IdenticalToBehaviorDirectly()
     {
         var evidence = new AdoptionEvidence(
             CandidateStandardIds: new[] { "STD-GOV-0002", "STD-GOV-0003", "STD-QUA-0001" },
@@ -58,7 +63,7 @@ public sealed class RepositoryOnboardingAssessmentAgentTests : IDisposable
 
         Assert.Equal(expected.Status, actual.Status);
         Assert.Equal(expected.TechnologyProfile!.Id, actual.TechnologyProfile!.Id);
-        Assert.Equal(expected.TechnologyProfile.Stack, actual.TechnologyProfile.Stack);
+        Assert.Equal(expected.TechnologyProfile.Technologies.Select(t => t.Name), actual.TechnologyProfile.Technologies.Select(t => t.Name));
         Assert.Equal(expected.ProjectProfile!.Id, actual.ProjectProfile!.Id);
         Assert.Equal(expected.ProjectProfile.Name, actual.ProjectProfile.Name);
         Assert.Equal(expected.ProjectProfile.Adopted, actual.ProjectProfile.Adopted);
@@ -100,7 +105,7 @@ public sealed class RepositoryOnboardingAssessmentAgentTests : IDisposable
     [Fact]
     public void DirectDescriptorConvention_UnreadableRepository_Escalates_IdenticalToBehaviorDirectly()
     {
-        var descriptor = new RepositoryDescriptor("locked-repo", IsReadable: false, PrimaryStack: null);
+        var descriptor = new RepositoryDescriptor("locked-repo", IsReadable: false, TechnologyDetection: null);
         var evidence = new AdoptionEvidence(CandidateStandardIds: new[] { "STD-GOV-0002" }, KnownSatisfiedStandardIds: Array.Empty<string>());
 
         var expected = (AssessmentOutcome)new RepositoryAssessmentBehavior(descriptor, evidence).Execute(context: null!)!;
@@ -112,11 +117,11 @@ public sealed class RepositoryOnboardingAssessmentAgentTests : IDisposable
         Assert.Null(actual.ProjectProfile);
     }
 
-    // Mirrors RepositoryAssessmentBehaviorTests.ReadableRepositoryWithUndeterminedStack_Escalates_NeverGuesses
+    // Mirrors RepositoryAssessmentBehaviorTests.ReadableRepositoryWithInconclusiveScan_Escalates_NeverGuesses
     [Fact]
-    public void DirectDescriptorConvention_ReadableRepositoryWithUndeterminedStack_Escalates_IdenticalToBehaviorDirectly()
+    public void DirectDescriptorConvention_ReadableRepositoryWithInconclusiveScan_Escalates_IdenticalToBehaviorDirectly()
     {
-        var descriptor = new RepositoryDescriptor("mystery-repo", IsReadable: true, PrimaryStack: null);
+        var descriptor = new RepositoryDescriptor("mystery-repo", IsReadable: true, TechnologyDetectionResult.Inconclusive);
         var evidence = new AdoptionEvidence(CandidateStandardIds: new[] { "STD-GOV-0002" }, KnownSatisfiedStandardIds: Array.Empty<string>());
 
         var expected = (AssessmentOutcome)new RepositoryAssessmentBehavior(descriptor, evidence).Execute(context: null!)!;
@@ -126,10 +131,10 @@ public sealed class RepositoryOnboardingAssessmentAgentTests : IDisposable
         Assert.Equal(expected.EscalationReason, actual.EscalationReason);
     }
 
-    // AC1: local_repository_root supplied, is_readable/primary_stack are not -
-    // derives a real RepositoryDescriptor via the S22/S23 adapter (a real,
-    // temporary on-disk fixture directory containing a .csproj marker) and
-    // calls RepositoryAssessmentBehavior unmodified.
+    // AC1: local_repository_root supplied, is_readable/technologies are not -
+    // derives a real RepositoryDescriptor via the S22/S23/S27 adapter (a
+    // real, temporary on-disk fixture directory containing a .csproj
+    // marker) and calls RepositoryAssessmentBehavior with a Detected result.
     [Fact]
     public void LocalRepositoryRoot_ReadableWithDotnetMarker_DerivesDescriptorAndProducesDraftProfiles()
     {
@@ -144,11 +149,32 @@ public sealed class RepositoryOnboardingAssessmentAgentTests : IDisposable
 
         Assert.Equal(AssessmentStatus.Assessed, outcome.Status);
         Assert.NotNull(outcome.TechnologyProfile);
-        Assert.Equal("dotnet", outcome.TechnologyProfile!.Stack);
+        Assert.Equal(new[] { "dotnet" }, outcome.TechnologyProfile!.Technologies.Select(t => t.Name));
         Assert.NotNull(outcome.ProjectProfile);
         Assert.Equal(new[] { "STD-GOV-0002" }, outcome.ProjectProfile!.Adopted);
         Assert.Equal(new[] { "STD-GOV-0003" }, outcome.ProjectProfile.Deferred);
         Assert.Null(outcome.EscalationReason);
+    }
+
+    // Story S28's real-world motivating case, exercised end-to-end through
+    // the Agent: a repository with markers for two different stacks
+    // derives a Hybrid Technology Inventory and is Assessed, never
+    // escalated as an unresolved tie.
+    [Fact]
+    public void LocalRepositoryRoot_ReadableWithTwoDifferentMarkers_DerivesHybridInventory_AssessedNotEscalated()
+    {
+        File.WriteAllText(Path.Combine(_root.FullName, "Sample.csproj"), "<Project />");
+        File.WriteAllText(Path.Combine(_root.FullName, "package.json"), "{}");
+
+        var evidence = new AdoptionEvidence(
+            CandidateStandardIds: new[] { "STD-GOV-0002" },
+            KnownSatisfiedStandardIds: Array.Empty<string>());
+
+        var agent = new RepositoryOnboardingAssessmentAgent("hybrid-repo", _root.FullName, evidence);
+        var outcome = (AssessmentOutcome)agent.Execute(context: null!)!;
+
+        Assert.Equal(AssessmentStatus.Assessed, outcome.Status);
+        Assert.Equal(new[] { "dotnet", "node" }, outcome.TechnologyProfile!.Technologies.Select(t => t.Name).OrderBy(n => n));
     }
 
     // AC3: local_repository_root resolves to an unreadable/nonexistent path -
@@ -162,7 +188,7 @@ public sealed class RepositoryOnboardingAssessmentAgentTests : IDisposable
         var evidence = new AdoptionEvidence(CandidateStandardIds: new[] { "STD-GOV-0002" }, KnownSatisfiedStandardIds: Array.Empty<string>());
 
         var expected = (AssessmentOutcome)new RepositoryAssessmentBehavior(
-            new RepositoryDescriptor("sample-repo", IsReadable: false, PrimaryStack: null), evidence).Execute(context: null!)!;
+            new RepositoryDescriptor("sample-repo", IsReadable: false, TechnologyDetection: null), evidence).Execute(context: null!)!;
 
         var agent = new RepositoryOnboardingAssessmentAgent("sample-repo", nonexistentRoot, evidence);
         var actual = (AssessmentOutcome)agent.Execute(context: null!)!;
@@ -174,18 +200,23 @@ public sealed class RepositoryOnboardingAssessmentAgentTests : IDisposable
         Assert.Null(actual.ProjectProfile);
     }
 
-    // AC1's "skip stack-detection when root is unreadable" judgment call:
-    // a readable-but-empty root (no recognized marker) still escalates via
-    // the existing "undetermined stack" message - never a new failure mode.
+    // Renamed from ...NoRecognizedMarker...EscalatesWithExistingUndeterminedStackMessage:
+    // a readable root with no recognized marker is now a confirmed,
+    // non-escalating "confirmed-no-technology" outcome - never an
+    // escalation, per Story S28 / ADR-0013 (INV-3). This is the one
+    // acceptance-behavior *change*, not merely a rename: pre-S28, this
+    // exact fixture escalated; post-S28, it reaches ConfirmedNoTechnology.
     [Fact]
-    public void LocalRepositoryRoot_ReadableWithNoRecognizedMarker_EscalatesWithExistingUndeterminedStackMessage()
+    public void LocalRepositoryRoot_ReadableWithNoRecognizedMarker_ReachesConfirmedNoTechnology_NeverEscalatesAsAmbiguous()
     {
         var evidence = new AdoptionEvidence(CandidateStandardIds: new[] { "STD-GOV-0002" }, KnownSatisfiedStandardIds: Array.Empty<string>());
 
         var agent = new RepositoryOnboardingAssessmentAgent("sample-repo", _root.FullName, evidence);
         var outcome = (AssessmentOutcome)agent.Execute(context: null!)!;
 
-        Assert.Equal(AssessmentStatus.Escalated, outcome.Status);
-        Assert.Equal("Repository 'sample-repo' has no determinable primary technology stack - cannot select a Technology Profile without guessing.", outcome.EscalationReason);
+        Assert.Equal(AssessmentStatus.ConfirmedNoTechnology, outcome.Status);
+        Assert.Null(outcome.EscalationReason);
+        Assert.Null(outcome.TechnologyProfile);
+        Assert.Null(outcome.ProjectProfile);
     }
 }

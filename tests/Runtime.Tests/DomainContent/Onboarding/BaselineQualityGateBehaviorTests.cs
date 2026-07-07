@@ -1,4 +1,5 @@
 using Runtime.DomainContent.Onboarding;
+using Runtime.Integration.RepositoryScanning;
 using Xunit;
 
 namespace Runtime.Tests.DomainContent.Onboarding;
@@ -9,12 +10,15 @@ namespace Runtime.Tests.DomainContent.Onboarding;
 // project, run the baseline Quality Gate set and classify per the
 // greenfield/existing divergence (§3); every gap is either closed or
 // carries a recorded exception with rationale - none left unaccounted for.
+// TechnologyProfileDraft's shape amended per ADR-0013 / Epic 0008 Story
+// S28 - this Story's own logic is otherwise untouched, confirmed by
+// inspection (no production code here reads .Technologies).
 public class BaselineQualityGateBehaviorTests
 {
     private static RegistrationOutcome RegisteredOutcome() =>
         RegistrationOutcome.Registered(
             new ProjectProfileDraft("PPR-PRJ-sample-repo", "sample-repo", Adopted: new[] { "STD-GOV-0001" }, Deferred: Array.Empty<string>()),
-            new TechnologyProfileDraft("TPR-PRJ-sample-repo", "dotnet"),
+            new TechnologyProfileDraft("TPR-PRJ-sample-repo", new[] { new TechnologyEvidence("dotnet", "Sample.csproj at repository root") }),
             new FrameworkSyncRecord("2.3.0"));
 
     [Fact]
