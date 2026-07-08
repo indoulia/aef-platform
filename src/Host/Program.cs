@@ -151,6 +151,8 @@ app.UseExceptionHandler(errorApp =>
     });
 });
 
+app.UseRequestObservability();
+
 app.UseSwagger();
 app.UseSwaggerUI();
 
