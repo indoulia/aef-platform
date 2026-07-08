@@ -104,6 +104,8 @@ public sealed class EngineeringExecutionPipeline
             "WFL-DEL-0006" => FromEngineeringPlanning(request),
             "WFL-DEL-0008" => FromRepositoryIntelligence(request),
             "REPO-VALIDATION" => FromRepositoryValidation(request),
+            "WFL-DEL-0007" => FromEngineeringSpecificationReview(request),
+            "WFL-DEL-0005" => FromImplementationValidation(request),
             _ => new ExecutionResult(false, null, null, new[] { $"No executable dispatch target for capability '{routingResult.TargetCapabilityId}'." }, null, TimeSpan.Zero, null, null),
         };
     }
@@ -260,6 +262,84 @@ public sealed class EngineeringExecutionPipeline
 
         return new ExecutionResult(passed, null, "AGT-EXE-0010", diagnostics, null, TimeSpan.Zero, null, null,
             RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths, TestsExecuted: true);
+    }
+
+    private ExecutionResult FromEngineeringSpecificationReview(EngineeringRequest request)
+    {
+        if (request.Payload is null || !request.Payload.TryGetValue("SpecificationReviewRequest", out var raw)
+            || raw is not DomainContent.EngineeringSpecificationReview.SpecificationReviewRequest reviewRequest)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0007", "AGT-EXE-0013",
+                new[] { "Payload must carry a SpecificationReviewRequest." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var outcome = InvokeSkill<DomainContent.EngineeringSpecificationReview.SpecificationReviewOutcome>(
+            "SKL-EXE-0026", "SpecificationReviewRequest", reviewRequest, request.ProjectProfileId, "SpecificationReview");
+
+        if (outcome is null)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0007", "AGT-EXE-0013", new[] { "SKL-EXE-0026 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        if (outcome.IsEscalated)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0007", "AGT-EXE-0013", new[] { outcome.EscalationReason! }, null, TimeSpan.Zero, null, null);
+        }
+
+        var findingsSummary = outcome.ReviewInstance!.Findings.Select(f => $"[{f.Severity}] {f.Area}: {f.Reason}").ToList();
+        return new ExecutionResult(true, "WFL-DEL-0007", "AGT-EXE-0013", findingsSummary, null, TimeSpan.Zero,
+            outcome.FinalRecommendation, "Independent review complete.");
+    }
+
+    private ExecutionResult FromImplementationValidation(EngineeringRequest request)
+    {
+        if (request.Payload is null
+            || !request.Payload.TryGetValue("SpecificationConformanceValidationRequest", out var confRaw)
+            || confRaw is not DomainContent.ImplementationValidation.SpecificationConformanceValidationRequest confRequest
+            || !request.Payload.TryGetValue("ArchitectureStandardsConformanceReviewRequest", out var archRaw)
+            || archRaw is not DomainContent.ImplementationValidation.ArchitectureStandardsConformanceReviewRequest archRequest)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0005", "AGT-EXE-0014",
+                new[] { "Payload must carry SpecificationConformanceValidationRequest and ArchitectureStandardsConformanceReviewRequest." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var conformance = InvokeSkill<DomainContent.ImplementationValidation.SpecificationConformanceValidationResult>(
+            "SKL-EXE-0027", "SpecificationConformanceValidationRequest", confRequest, request.ProjectProfileId, "Validation-Conformance");
+        if (conformance is null || conformance.IsEscalated)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0005", "AGT-EXE-0014",
+                new[] { conformance?.EscalationReason ?? "SKL-EXE-0027 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var architecture = InvokeSkill<DomainContent.ImplementationValidation.ArchitectureStandardsConformanceReviewResult>(
+            "SKL-EXE-0028", "ArchitectureStandardsConformanceReviewRequest", archRequest, request.ProjectProfileId, "Validation-Architecture");
+        if (architecture is null || architecture.IsEscalated)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0005", "AGT-EXE-0014",
+                new[] { architecture?.EscalationReason ?? "SKL-EXE-0028 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var combinedFindings = conformance.ConformanceFindings!.Concat(architecture.ConformanceFindings!).ToList();
+        var synthesis = InvokeSkill<DomainContent.ImplementationValidation.ValidationFindingsSynthesisResult>(
+            "SKL-EXE-0029", "ValidationFindingsSynthesisRequest",
+            new DomainContent.ImplementationValidation.ValidationFindingsSynthesisRequest(combinedFindings),
+            request.ProjectProfileId, "Validation-Synthesis");
+
+        if (synthesis is null || synthesis.IsEscalated)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0005", "AGT-EXE-0014",
+                new[] { synthesis?.EscalationReason ?? "SKL-EXE-0029 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var diagnosticsSummary = conformance.UncoveredSpecificationSections!
+            .Select(s => $"Uncovered specification section: {s}")
+            .Concat(synthesis.ReviewInstance!.Findings.Select(f => $"[{f.Severity}] {f.Area}: {f.Reason}"))
+            .ToList();
+
+        var isReady = synthesis.MergeReadinessSignal == "ready";
+        return new ExecutionResult(isReady, "WFL-DEL-0005", "AGT-EXE-0014", diagnosticsSummary, null, TimeSpan.Zero,
+            synthesis.MergeReadinessSignal,
+            isReady ? "No further action needed." : "Awaiting Human Approval at the Review gate.");
     }
 
     private T? InvokeSkill<T>(string skillId, string contentKey, object payload, string projectProfileId, string tierLabel) where T : class

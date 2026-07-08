@@ -83,9 +83,17 @@ public sealed class LocalGitChangeVerifier : IIsolatedChangeVerifier
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start the 'git' process - is Git installed and on PATH?");
 
-        var standardOutput = process.StandardOutput.ReadToEnd();
-        var standardError = process.StandardError.ReadToEnd();
+        // Reading one stream to completion before starting the other
+        // deadlocks as soon as the un-drained stream fills its OS pipe
+        // buffer - both streams must be drained concurrently (same fix
+        // already applied to LocalGitOperations.RunGit and
+        // ProcessVerificationRunner.Run - issue #23).
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        var standardErrorTask = process.StandardError.ReadToEndAsync();
         process.WaitForExit();
+
+        var standardOutput = standardOutputTask.GetAwaiter().GetResult();
+        var standardError = standardErrorTask.GetAwaiter().GetResult();
 
         return (process.ExitCode, standardOutput, standardError);
     }

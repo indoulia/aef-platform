@@ -1,4 +1,4 @@
-namespace Runtime.Orchestration.Resilience;
+namespace Kernel.Resilience;
 
 // One try within a retry sequence - every attempt is retained (per
 // §1.2's "earlier attempts' partial Evidence... is retained for audit"),
