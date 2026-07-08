@@ -47,7 +47,7 @@ public sealed class EngineeringExecutionPipeline
             stopwatch.Stop();
             return new ExecutionResult(
                 Success: false, null, null, executionContext.Diagnostics, null, stopwatch.Elapsed,
-                handoff.PresentedResult, handoff.SuggestedNextStep);
+                handoff.PresentedResult, handoff.SuggestedNextStep, Kind: ExecutionResultKind.NeedsClarification);
         }
 
         executionContext.State = EngineeringExecutionState.Dispatching;

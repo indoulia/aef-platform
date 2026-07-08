@@ -86,6 +86,19 @@ public class EngineeringExecutionPipelineTests
     }
 
     [Fact]
+    public void Execute_UnroutableRequest_SetsKindToNeedsClarification()
+    {
+        var runtime = BootWithBehaviors(ConversationBehaviors());
+        runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0021", "Execution"));
+        runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0022", "Execution"));
+        var pipeline = new EngineeringExecutionPipeline(runtime);
+
+        var result = pipeline.Execute(new EngineeringRequest("What time is it?", "default-profile"));
+
+        Assert.Equal(ExecutionResultKind.NeedsClarification, result.Kind);
+    }
+
+    [Fact]
     public void Execute_DeliveryRequest_DispatchesThroughSkillHostAndReturnsValidationResults()
     {
         var deliveryBehaviors = new Dictionary<string, IBehavior>
@@ -122,6 +135,19 @@ public class EngineeringExecutionPipelineTests
 
         Assert.False(result.Success);
         Assert.NotEmpty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void Execute_WorkflowNotRegistered_KindStaysUnspecified()
+    {
+        var runtime = BootWithBehaviors(ConversationBehaviors());
+        runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0021", "Execution"));
+        runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0022", "Execution"));
+        var pipeline = new EngineeringExecutionPipeline(runtime);
+
+        var result = pipeline.Execute(new EngineeringRequest("implement a feature", "default-profile"));
+
+        Assert.Equal(ExecutionResultKind.Unspecified, result.Kind);
     }
 
     [Fact]
