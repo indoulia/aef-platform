@@ -11,7 +11,8 @@ builder.Services
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-builder.Services.AddSingleton(_ => RuntimeBootstrapper.Boot());
+builder.Services.AddSingleton(_ => RuntimeBootstrapper.Boot(
+    new RuntimeConfiguration(PolicyResolver: new PermissiveActivationPolicyResolver())));
 builder.Services.AddHostedService<RuntimeStartupHostedService>();
 
 var host = builder.Build();
