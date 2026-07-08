@@ -195,9 +195,23 @@ public sealed class EngineeringExecutionPipeline
             return new ExecutionResult(false, null, "AGT-EXE-0010", new[] { "REPO-VALIDATION is not invocable." }, null, TimeSpan.Zero, null, null);
         }
 
-        var diagnostics = outcome.IsEscalated ? new[] { outcome.EscalationReason! } : Array.Empty<string>();
-        return new ExecutionResult(!outcome.IsEscalated, null, "AGT-EXE-0010", diagnostics, null, TimeSpan.Zero, null, null,
-            RepositoryAnalyzed: repositoryContext.RepositoryName, TestsExecuted: !outcome.IsEscalated);
+        if (outcome.IsEscalated)
+        {
+            return new ExecutionResult(false, null, "AGT-EXE-0010", new[] { outcome.EscalationReason! }, null, TimeSpan.Zero, null, null,
+                RepositoryAnalyzed: repositoryContext.RepositoryName, TestsExecuted: false);
+        }
+
+        // IsEscalated only means "no verification procedure could be
+        // constructed" - a real, completed run that failed (non-zero exit)
+        // is still a Recorded outcome, never treated as a success (Story
+        // S31's own "log it rather than silently omitting it" discipline).
+        var passed = outcome.LogEntry!.Passed;
+        var diagnostics = passed
+            ? Array.Empty<string>()
+            : new[] { $"Validation command exited with code {outcome.LogEntry.ExitCode}: {outcome.LogEntry.StandardErrorExcerpt}" };
+
+        return new ExecutionResult(passed, null, "AGT-EXE-0010", diagnostics, null, TimeSpan.Zero, null, null,
+            RepositoryAnalyzed: repositoryContext.RepositoryName, TestsExecuted: true);
     }
 
     private T? InvokeSkill<T>(string skillId, string contentKey, object payload, string projectProfileId, string tierLabel) where T : class

@@ -219,6 +219,35 @@ public class EngineeringExecutionPipelineTests
         }
     }
 
+    [Fact]
+    public void Execute_ValidateRequest_RealTestFailure_ReportsFailure_NeverFabricatesASuccess()
+    {
+        var root = InitDotnetGitRepository();
+        try
+        {
+            var validationBehaviors = new Dictionary<string, IBehavior>
+            {
+                ["REPO-VALIDATION"] = new RepositoryValidationSkillBehavior(new StubVerificationRunner(new VerificationRunResult(1, string.Empty, "1 test failed"))),
+            };
+            var runtime = BootWithBehaviors(ConversationBehaviors(validationBehaviors));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0021", "Execution"));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0022", "Execution"));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("REPO-VALIDATION", "Execution"));
+            var pipeline = new EngineeringExecutionPipeline(runtime);
+            var payload = new Dictionary<string, object> { ["RepositoryName"] = "test-repo", ["RepositoryRoot"] = root };
+
+            var result = pipeline.Execute(new EngineeringRequest("Validate the build", "default-profile", payload));
+
+            Assert.False(result.Success);
+            Assert.True(result.TestsExecuted);
+            Assert.NotEmpty(result.Diagnostics);
+        }
+        finally
+        {
+            DeleteRepository(root);
+        }
+    }
+
     private static string InitDotnetGitRepository()
     {
         var root = Directory.CreateTempSubdirectory().FullName;
