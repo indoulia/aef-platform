@@ -14,4 +14,5 @@ public sealed record ExecutionResult(
     string? SuggestedNextStep,
     string? RepositoryAnalyzed = null,
     IReadOnlyList<string>? FilesChanged = null,
-    bool? TestsExecuted = null);
+    bool? TestsExecuted = null,
+    ExecutionResultKind Kind = ExecutionResultKind.Unspecified);
