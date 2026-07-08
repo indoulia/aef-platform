@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Runtime.Agent;
 using Runtime.Agent.Capabilities;
+using Runtime.Agent.Health;
 using Runtime.Agent.Security;
 using Runtime.Agent.Sessions;
 using Runtime.Ai;
@@ -124,6 +125,7 @@ builder.Services.AddSingleton<IAgentExecutionInterface>(sp => new AgentExecution
     sp.GetRequiredService<ICapabilityCatalog>(),
     sp.GetRequiredService<ISessionStore>()));
 builder.Services.AddSingleton<ISecurityEvaluator, TrustedDefaultSecurityEvaluator>();
+builder.Services.AddSingleton<IRuntimeHealthContributor, AiProviderReachabilityHealthContributor>();
 builder.Services.AddHostedService<RuntimeStartupHostedService>();
 
 var app = builder.Build();
