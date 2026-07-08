@@ -1,6 +1,6 @@
 # GA-3 Capability 3: CLI Adapter — Design
 
-**Status:** Independent Engineering Review complete (Changes required → revised). All four findings resolved: a new `AefPlatform.Composition` class library extracts the six dependency-light classes `Cli` needs, so `Cli` no longer references `AefPlatform.Host` (and its ASP.NET Core/Swashbuckle footprint) at all; the duplication-precedent citation is corrected to two real precedents with an honest risk caveat; the E2E test executable-location strategy is pinned down; the `FailFastOnRegistrationError` divergence from `Host` is now stated explicitly. Ready for the Implementation Plan. Cites `docs/superpowers/specs/2026-07-08-ga3-external-execution-channels-engineering-program.md` (GA-3), `docs/superpowers/specs/2026-07-08-ga3-capability1-runtime-host-design.md` (Capability 1), `docs/superpowers/specs/2026-07-08-ga3-capability2-rest-adapter-design.md` (Capability 2), and ADR-0025 rather than re-deriving them.
+**Status:** Independent Engineering Review complete across two passes (Changes required → revised → Approved with minor findings → revised). A new `AefPlatform.Composition` class library extracts the six dependency-light classes `Cli` needs, so `Cli` no longer references `AefPlatform.Host` (and its ASP.NET Core/Swashbuckle footprint) at all; the duplication-precedent citation is corrected to two real precedents with an honest risk caveat; the `FailFastOnRegistrationError` divergence from `Host` is stated explicitly; the E2E test executable-location algorithm is fully specified and verified correct (the second pass caught that the first pass's path-substitution approach didn't actually resolve); the namespace-sharing cost is acknowledged with a cheap header-comment mitigation. Ready for the Implementation Plan. Cites `docs/superpowers/specs/2026-07-08-ga3-external-execution-channels-engineering-program.md` (GA-3), `docs/superpowers/specs/2026-07-08-ga3-capability1-runtime-host-design.md` (Capability 1), `docs/superpowers/specs/2026-07-08-ga3-capability2-rest-adapter-design.md` (Capability 2), and ADR-0025 rather than re-deriving them.
 
 ## Mission
 
@@ -19,7 +19,7 @@ Chat, IDE, SDK, batch execution, streaming, authentication providers, identity p
 Three new/changed projects, mirroring Capability 2's `Adapters.Rest`/`Host` split, revised per Independent Engineering Review Finding 1 (below):
 
 - **`src/Adapters.Cli`** (class library, `ProjectReference: Runtime.Agent` only, fitness-tested identically to `Adapters.Rest`): argument parsing into a plain DTO, response formatting (text and JSON), exit-code mapping. No execution logic, no ASP.NET Core dependency.
-- **`src/Composition`** (`AefPlatform.Composition.csproj`, new class library, `ProjectReference: Runtime`, `Runtime.Agent` — `Kernel` flows transitively via `Runtime`, exactly as it already does for `Host` today): relocates six existing, dependency-light classes out of `src/Host` — `RuntimeArchitectureLoader`/`RuntimeArchitectureLoadReport`, `EngineeringArchitectureManifest`, `ArchitectureArtifact`, `PlatformHostOptions`, `AiProviderOptions`, `PermissiveActivationPolicyResolver`, `TrustedDefaultSecurityEvaluator`. Every one of these imports only `System.ComponentModel.DataAnnotations`, `Kernel.Governance`, `Kernel.Registry`, `Runtime.Bootstrapping`, `Microsoft.Extensions.Logging`, or `Runtime.Agent.Security` — none touch ASP.NET Core. **Their namespace stays `AefPlatform.Host`, unchanged**, despite the physical project move — a namespace need not match its assembly, and preserving it means zero existing file anywhere in `Host`, `Host.Tests`, or any other already-merged test needs a `using` statement changed; only `Host.csproj`'s `ProjectReference` list and the two files (`src/Host/Program.cs`, `src/Host/RuntimeStartupHostedService.cs`) that directly `using` these types are touched, and only to add the new project reference — a minimality choice, stated plainly rather than left to look like an oversight.
+- **`src/Composition`** (`AefPlatform.Composition.csproj`, new class library, `ProjectReference: Runtime`, `Runtime.Agent` — `Kernel` flows transitively via `Runtime`, exactly as it already does for `Host` today): relocates six existing, dependency-light classes out of `src/Host` — `RuntimeArchitectureLoader`/`RuntimeArchitectureLoadReport`, `EngineeringArchitectureManifest`, `ArchitectureArtifact`, `PlatformHostOptions`, `AiProviderOptions`, `PermissiveActivationPolicyResolver`, `TrustedDefaultSecurityEvaluator`. Every one of these imports only `System.ComponentModel.DataAnnotations`, `Kernel.Governance`, `Kernel.Registry`, `Runtime.Bootstrapping`, `Microsoft.Extensions.Logging`, or `Runtime.Agent.Security` — none touch ASP.NET Core. **Their namespace stays `AefPlatform.Host`, unchanged**, despite the physical project move — a namespace need not match its assembly, and preserving it means zero existing file anywhere in `Host`, `Host.Tests`, or any other already-merged test needs a `using` statement changed; only `Host.csproj`'s `ProjectReference` list and the two files (`src/Host/Program.cs`, `src/Host/RuntimeStartupHostedService.cs`) that directly `using` these types are touched, and only to add the new project reference — a minimality choice, stated plainly rather than left to look like an oversight. **Acknowledged cost:** the `AefPlatform.Host` namespace now spans two physical assemblies (`AefPlatform.Host.dll` and `AefPlatform.Composition.dll`), which is real "go to definition" discoverability friction for a future contributor. Mitigation (cheap, not structural): each of the six relocated files gets a one-line header comment noting its true physical project, e.g. `// Physically lives in src/Composition/AefPlatform.Composition.csproj - namespace unchanged from its prior home in src/Host, see Capability 3's design Decision 1.`
 - **`src/Cli`** (`AefPlatform.Cli.csproj`, `OutputType: Exe`, a new composition root): references `Runtime`, `Runtime.Ai`, `Runtime.Agent`, `Adapters.Cli`, and **`AefPlatform.Composition`** — never `AefPlatform.Host`. `Cli` is a composition root exactly like `Host`, exempt from ADR-0025's "channel depends on `Runtime.Agent` only" rule for the same reason Capability 1 established for `Host` itself (a composition root sees every layer; ADR-0025 governs adapter/channel *logic*, not the executable assembling it) — but that exemption never extended to pulling in `Host`'s own unrelated ASP.NET Core/Swashbuckle footprint, which a `ProjectReference` to `AefPlatform.Host.csproj` would have transitively dragged in. Extracting the six shared classes into `AefPlatform.Composition` (a plain class library, no web SDK, no `FrameworkReference`) gives `Cli` everything it needs with zero HTTP-hosting weight — directly serving GA-3 §8's own requirement that CLI startup cost stay small.
 
 **Fitness test:** `tests/Adapters.Cli.Tests/ArchitectureBoundaryTests.cs`, identical pattern to `Adapters.Rest.Tests`'s own — excludes `Runtime`/`Runtime.Ai`/`Kernel`, includes `Runtime.Agent`.
@@ -78,7 +78,43 @@ Calls `IAgentExecutionInterface.DiscoverCapabilities()`, formats identically (`t
 - `CliExecuteArgumentsValidatorTests`: missing/blank `--user-request`/`--project-profile-id` rejected; malformed `--payload-json` rejected; a valid set of arguments passes.
 - `CliOutputFormatterTests`: `ExecutionResponse` formats correctly in both `text` and `json` modes; `CapabilityDescriptor[]` likewise.
 - `ExitCodeMapperTests`: each `ExecutionStatus` value and each failure category (security denial, validation failure) maps to its documented exit code (Decision 4's table, expressed as data-driven test cases).
-- End-to-end process tests (`tests/Cli.Tests`, using `System.Diagnostics.Process` to actually launch the built `AefPlatform.Cli` executable — the only way to prove a real process boundary, exit code, and stdout/stderr behavior, mirroring how `Adapters.Rest.Tests` uses `WebApplicationFactory` for a real HTTP round-trip). **Locating the executable, pinned down to avoid CI flakiness:** `tests/Cli.Tests/Cli.Tests.csproj` takes a `ProjectReference` to `AefPlatform.Cli.csproj` (guaranteeing build ordering — the executable is always built before the test project that launches it), and the test fixture resolves the path via `AppContext.BaseDirectory` combined with a relative walk to `Cli`'s own output directory using the *same* build configuration the test itself is running under (`#if DEBUG`/`RELEASE`-free approach: read `System.Reflection.Assembly.GetExecutingAssembly().Location`'s directory and substitute `Cli.Tests` for `AefPlatform.Cli` in the path, since both projects share the same `bin/<Configuration>/net8.0/` layout convention already visible in every existing `bin/Debug/net8.0/*.dll` path this session's own build output uses) — invoked as `dotnet AefPlatform.Cli.dll <args>` (not the native apphost), which is portable across the Windows/Linux dev and CI environments this repository has run on so far without a platform-specific executable-extension check:
+- End-to-end process tests (`tests/Cli.Tests`, using `System.Diagnostics.Process` to actually launch the built `AefPlatform.Cli` executable — the only way to prove a real process boundary, exit code, and stdout/stderr behavior, mirroring how `Adapters.Rest.Tests` uses `WebApplicationFactory` for a real HTTP round-trip). **Locating the executable, pinned down precisely (second review pass corrected the first attempt's path logic, which did not actually resolve):** `tests/Cli.Tests/Cli.Tests.csproj` takes a `ProjectReference` to `AefPlatform.Cli.csproj` (guaranteeing build ordering). The test fixture locates the executable with this exact algorithm, not a path-string substitution:
+
+```csharp
+private static string LocateCliExecutablePath()
+{
+    // AppContext.BaseDirectory is .../tests/Cli.Tests/bin/<Configuration>/net8.0/ -
+    // walk up to find the repository root (marked by AefPlatform.sln), then
+    // rebuild the equivalent path under src/Cli using the same
+    // <Configuration>/<TargetFramework> segment names observed at runtime,
+    // so this works under both `dotnet test` (Debug) and a Release CI run
+    // without a hardcoded configuration name or a brittle string substitution.
+    var testBinDirectory = new DirectoryInfo(AppContext.BaseDirectory);
+    var configurationSegment = testBinDirectory.Parent!.Name;
+    var targetFrameworkSegment = testBinDirectory.Name;
+
+    var repositoryRoot = testBinDirectory;
+    while (repositoryRoot is not null && !File.Exists(Path.Combine(repositoryRoot.FullName, "AefPlatform.sln")))
+    {
+        repositoryRoot = repositoryRoot.Parent;
+    }
+
+    if (repositoryRoot is null)
+    {
+        throw new InvalidOperationException("Could not locate AefPlatform.sln walking up from the test's base directory.");
+    }
+
+    var cliExecutablePath = Path.Combine(repositoryRoot.FullName, "src", "Cli", "bin", configurationSegment, targetFrameworkSegment, "AefPlatform.Cli.dll");
+    if (!File.Exists(cliExecutablePath))
+    {
+        throw new FileNotFoundException($"AefPlatform.Cli.dll not found at '{cliExecutablePath}' - ensure the Cli project has been built.", cliExecutablePath);
+    }
+
+    return cliExecutablePath;
+}
+```
+
+Invoked as `dotnet <path>` (not the native apphost) — portable across the Windows/Linux dev and CI environments this repository has run on so far, with no platform-specific executable-extension check needed:
   - `execute` with valid arguments routing to a deterministic capability (the same `"feature"`-keyword path Capability 2's own tests use) → exit code `0`, stdout contains `"Completed"`.
   - `execute` with an unknown `--session-id` → exit code `1` (ordinary `Failed`, per Decision 4 — no special-cased code, unlike REST's 404).
   - `execute` with a blank `--user-request` → exit code `64`.
