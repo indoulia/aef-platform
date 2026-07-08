@@ -29,4 +29,11 @@ public sealed class RuntimeCatalog
         var conformance = _conformanceProvider?.GetConformanceResult(id);
         return CatalogQueryResult.FoundResult(new CatalogEntry(entry.Id, entry.Domain, entry.Status, conformance));
     }
+
+    public IReadOnlyCollection<CatalogEntry> All()
+    {
+        return _registry.All()
+            .Select(entry => new CatalogEntry(entry.Id, entry.Domain, entry.Status, _conformanceProvider?.GetConformanceResult(entry.Id)))
+            .ToList();
+    }
 }

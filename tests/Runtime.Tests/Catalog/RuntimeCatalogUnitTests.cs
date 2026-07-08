@@ -82,6 +82,30 @@ public class RuntimeCatalogUnitTests
         Assert.Null(result.Entry!.ContractConformanceResult);
     }
 
+    [Fact]
+    public void All_NoEntries_ReturnsEmpty()
+    {
+        var registry = new InMemoryRegistry(new Kernel.Evidence.InMemoryEvidenceSink());
+        var catalog = new RuntimeCatalog(registry);
+
+        Assert.Empty(catalog.All());
+    }
+
+    [Fact]
+    public void All_AfterRegistrations_ReturnsEveryEntryWithConformanceApplied()
+    {
+        var registry = new InMemoryRegistry(new Kernel.Evidence.InMemoryEvidenceSink());
+        registry.Register(new DefinitionSubmission("skill-1", "domain-skills"));
+        registry.Register(new DefinitionSubmission("strategy-1", "domain-strategies"));
+        var catalog = new RuntimeCatalog(registry, new FixedConformanceProvider("strategy-1", "Conformant"));
+
+        var all = catalog.All();
+
+        Assert.Equal(2, all.Count);
+        Assert.Contains(all, e => e.Id == "skill-1" && e.ContractConformanceResult == null);
+        Assert.Contains(all, e => e.Id == "strategy-1" && e.ContractConformanceResult == "Conformant");
+    }
+
     private sealed class FakeRegistry : IRegistry
     {
         public QueryResult NextResult { get; }
