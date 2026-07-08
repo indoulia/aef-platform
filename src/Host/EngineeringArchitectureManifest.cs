@@ -28,5 +28,12 @@ public static class EngineeringArchitectureManifest
         new ArchitectureArtifact("AGT-EXE-0008", "Execution"),
         new ArchitectureArtifact("SKL-EXE-0017", "Execution"),
         new ArchitectureArtifact("AGT-EXE-0009", "Execution"),
+        new ArchitectureArtifact("AGT-EXE-0010", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0018", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0019", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0020", "Execution"),
+        new ArchitectureArtifact("AGT-EXE-0011", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0021", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0022", "Execution"),
     };
 }
