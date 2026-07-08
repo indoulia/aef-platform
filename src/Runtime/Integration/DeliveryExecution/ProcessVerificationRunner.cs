@@ -9,6 +9,8 @@ namespace Runtime.Integration.DeliveryExecution;
 // argument can never be interpreted as a second shell command.
 public sealed class ProcessVerificationRunner : IVerificationRunner
 {
+    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromMinutes(10);
+
     public VerificationRunResult Run(string workingDirectory, string command, IReadOnlyList<string> arguments)
     {
         if (string.IsNullOrEmpty(command))
@@ -48,11 +50,36 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
 
         using (process)
         {
-            var standardOutput = process.StandardOutput.ReadToEnd();
-            var standardError = process.StandardError.ReadToEnd();
-            process.WaitForExit();
+            // Reading one stream to completion before starting the other
+            // deadlocks as soon as the un-drained stream fills its OS pipe
+            // buffer - a real build/test command routinely produces large,
+            // concurrent output on both stdout and stderr.
+            var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+            var standardErrorTask = process.StandardError.ReadToEndAsync();
+
+            if (!process.WaitForExit((int)ProcessTimeout.TotalMilliseconds))
+            {
+                TryKill(process);
+                throw new TimeoutException($"Verification command '{command}' did not exit within {ProcessTimeout}.");
+            }
+
+            var standardOutput = standardOutputTask.GetAwaiter().GetResult();
+            var standardError = standardErrorTask.GetAwaiter().GetResult();
 
             return new VerificationRunResult(process.ExitCode, standardOutput, standardError);
+        }
+    }
+
+    private static void TryKill(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+            // Best-effort only - the process may have exited between the
+            // timeout check and this call.
         }
     }
 }

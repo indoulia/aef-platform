@@ -118,8 +118,8 @@ public sealed class EngineeringExecutionPipeline
     private static RepositoryExecutionContext? TryGetRepositoryContext(EngineeringRequest request)
     {
         if (request.Payload is not null
-            && request.Payload.TryGetValue("RepositoryName", out var nameObj) && nameObj is string name
-            && request.Payload.TryGetValue("RepositoryRoot", out var rootObj) && rootObj is string root)
+            && request.Payload.TryGetValue("RepositoryName", out var nameObj) && nameObj is string name && !string.IsNullOrEmpty(name)
+            && request.Payload.TryGetValue("RepositoryRoot", out var rootObj) && rootObj is string root && !string.IsNullOrEmpty(root))
         {
             return RepositoryContextFactory.Create(name, root);
         }
