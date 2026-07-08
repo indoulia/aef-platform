@@ -1,6 +1,6 @@
+using Kernel.Resilience;
 using Runtime.DomainContent.DeliveryExecution;
 using Runtime.Integration.DeliveryExecution;
-using Runtime.Orchestration.Resilience;
 using Xunit;
 
 namespace Runtime.Tests.Scenarios;

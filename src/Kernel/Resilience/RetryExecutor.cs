@@ -1,4 +1,4 @@
-namespace Runtime.Orchestration.Resilience;
+namespace Kernel.Resilience;
 
 // Realizes docs/discovery/orchestration/03-resilience-and-context.md §1.1's
 // exact algorithm: up to 3 retries with exponential backoff (base 4 - 1s,
