@@ -1,6 +1,6 @@
 # GA-2: AI Agent Integration Layer — Design
 
-**Status:** Approved (design), pending implementation plan.
+**Status:** Implemented. See `docs/superpowers/plans/2026-07-08-ga2-ai-agent-integration-layer-implementation-plan.md` for the implementation plan and `README.md` for the completion summary.
 
 ## Mission
 
