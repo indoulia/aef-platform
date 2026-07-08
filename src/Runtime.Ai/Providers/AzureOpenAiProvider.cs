@@ -53,7 +53,7 @@ public sealed class AzureOpenAiProvider : IAiProvider
         if (!response.IsSuccessStatusCode)
         {
             var isTransient = response.StatusCode == HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500;
-            throw new AiProviderException($"Azure OpenAI returned {(int)response.StatusCode}: {body}", isTransient);
+            throw new AiProviderException($"Azure OpenAI returned {(int)response.StatusCode}: {HttpErrorBodyFormatter.Truncate(body)}", isTransient);
         }
 
         AzureChatCompletionResponse parsed;
