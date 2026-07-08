@@ -30,4 +30,20 @@ public class PromptRendererTests
         Assert.Null(result.RenderedUserPrompt);
         Assert.Equal(new[] { "review_iteration" }, result.MissingVariables);
     }
+
+    [Fact]
+    public void ASuppliedNullValueRendersAsLiteralNullTextInsteadOfBeingTreatedAsMissing()
+    {
+        // Several Prompt Contracts type a field "object | null" (e.g.
+        // specification_instance) - a caller passing null for it is
+        // supplying a legitimate, contract-shaped value, not omitting one.
+        var template = new PromptTemplate("PCT-EXE-0028", "system", "specification_instance: {{specification_instance}}");
+        var variables = new Dictionary<string, object?> { ["specification_instance"] = null };
+
+        var result = PromptRenderer.Render(template, variables);
+
+        Assert.True(result.Success);
+        Assert.Equal("specification_instance: null", result.RenderedUserPrompt);
+        Assert.Empty(result.MissingVariables);
+    }
 }
