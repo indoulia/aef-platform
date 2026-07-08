@@ -35,5 +35,17 @@ public static class EngineeringArchitectureManifest
         new ArchitectureArtifact("AGT-EXE-0011", "Execution"),
         new ArchitectureArtifact("SKL-EXE-0021", "Execution"),
         new ArchitectureArtifact("SKL-EXE-0022", "Execution"),
+        new ArchitectureArtifact("AGT-EXE-0012", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0023", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0024", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0025", "Execution"),
+        new ArchitectureArtifact("WFL-DEL-0006", "Delivery"),
+        new ArchitectureArtifact("AGT-EXE-0015", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0030", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0031", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0032", "Execution"),
+        new ArchitectureArtifact("SKL-EXE-0033", "Execution"),
+        new ArchitectureArtifact("WFL-DEL-0008", "Delivery"),
+        new ArchitectureArtifact("REPO-VALIDATION", "Execution"),
     };
 }

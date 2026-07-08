@@ -11,9 +11,10 @@ namespace Runtime.DomainContent.ConversationManagement;
 // Prompt's scope. This is therefore a deterministic keyword classifier
 // honoring PCT-EXE-0021's Input/Output contract shape exactly, limited to
 // the capabilities this Runtime can actually dispatch to (WFL-DEL-0001,
-// WFL-DEL-0004, the Delivery Execution skill trio) - it never routes to a
-// capability with no executable realization, and asks for clarification
-// rather than guess.
+// WFL-DEL-0004, the Delivery Execution skill trio, WFL-DEL-0006, WFL-DEL-0008,
+// and the repository validation path) - it never routes to a capability
+// with no executable realization, and asks for clarification rather than
+// guess.
 public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
 {
     private static readonly (string Keyword, string CapabilityId)[] KnownCapabilities =
@@ -22,6 +23,12 @@ public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
         ("feature", "WFL-DEL-0001"),
         ("deliver", "SKL-EXE-0018"),
         ("delivery", "SKL-EXE-0018"),
+        ("analyze", "WFL-DEL-0008"),
+        ("understand", "WFL-DEL-0008"),
+        ("diagnose", "WFL-DEL-0008"),
+        ("plan", "WFL-DEL-0006"),
+        ("specify", "WFL-DEL-0006"),
+        ("validate", "REPO-VALIDATION"),
     };
 
     public object? Execute(RuntimeExecutionContext context)
@@ -42,7 +49,7 @@ public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
 
         return RoutingResult.NeedsClarification(new[]
         {
-            "Which capability should handle this request? Supported: feature, epic, delivery."
+            "Which capability should handle this request? Supported: feature, epic, delivery, analyze, plan, validate."
         });
     }
 }

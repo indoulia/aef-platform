@@ -60,6 +60,19 @@ public class EngineeringArchitectureManifestTests
         Assert.Contains("AGT-EXE-0011", ids);
         Assert.Contains("SKL-EXE-0021", ids);
         Assert.Contains("SKL-EXE-0022", ids);
+        // Engineering Planner + Repository Intelligence + Repository Validation (AEF v1.0 RC0 Prompt P3)
+        Assert.Contains("AGT-EXE-0012", ids);
+        Assert.Contains("SKL-EXE-0023", ids);
+        Assert.Contains("SKL-EXE-0024", ids);
+        Assert.Contains("SKL-EXE-0025", ids);
+        Assert.Contains("WFL-DEL-0006", ids);
+        Assert.Contains("AGT-EXE-0015", ids);
+        Assert.Contains("SKL-EXE-0030", ids);
+        Assert.Contains("SKL-EXE-0031", ids);
+        Assert.Contains("SKL-EXE-0032", ids);
+        Assert.Contains("SKL-EXE-0033", ids);
+        Assert.Contains("WFL-DEL-0008", ids);
+        Assert.Contains("REPO-VALIDATION", ids);
     }
 }
 

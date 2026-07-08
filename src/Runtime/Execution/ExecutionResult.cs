@@ -11,4 +11,7 @@ public sealed record ExecutionResult(
     IReadOnlyList<string>? ValidationResults,
     TimeSpan Duration,
     string? PresentedResult,
-    string? SuggestedNextStep);
+    string? SuggestedNextStep,
+    string? RepositoryAnalyzed = null,
+    IReadOnlyList<string>? FilesChanged = null,
+    bool? TestsExecuted = null);
