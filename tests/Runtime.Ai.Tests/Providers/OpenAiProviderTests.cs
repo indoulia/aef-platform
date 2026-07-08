@@ -76,4 +76,33 @@ public class OpenAiProviderTests
 
         Assert.False(ex.IsTransient);
     }
+
+    private sealed class FailingReadContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            throw new IOException("connection reset while streaming response body");
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    private sealed class ResponseBodyReadFailsHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new FailingReadContent() });
+    }
+
+    [Fact]
+    public async Task ClassifiesAFailureReadingTheResponseBodyAsTransient()
+    {
+        var provider = new OpenAiProvider(new HttpClient(new ResponseBodyReadFailsHandler()), new OpenAiProviderOptions { ApiKey = "sk-test", Model = "gpt-4o" });
+
+        var ex = await Assert.ThrowsAsync<AiProviderException>(() =>
+            provider.CompleteAsync(new AiPromptRequest("PCT-EXE-0026", "system", "user"), CancellationToken.None));
+
+        Assert.True(ex.IsTransient);
+    }
 }

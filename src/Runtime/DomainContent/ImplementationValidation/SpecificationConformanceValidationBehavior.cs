@@ -48,7 +48,12 @@ public sealed class SpecificationConformanceValidationBehavior : IBehavior
             return SpecificationConformanceValidationResult.Escalated($"AI response for {PromptContractId} could not be parsed: {string.Join("; ", errors)}.");
         }
 
-        var findings = parsed!.Conformance_Findings.Select(f => new ConformanceFinding(f.Area, f.Classification, f.Rationale)).ToList();
+        if (parsed!.Conformance_Findings is null)
+        {
+            return SpecificationConformanceValidationResult.Escalated($"AI response for {PromptContractId} was missing conformance_findings.");
+        }
+
+        var findings = parsed.Conformance_Findings.Select(f => new ConformanceFinding(f.Area, f.Classification, f.Rationale)).ToList();
         return SpecificationConformanceValidationResult.Completed(findings, parsed.Uncovered_Specification_Sections ?? new List<string>());
     }
 }
