@@ -66,6 +66,20 @@ public class OpenAiProviderTests
     }
 
     [Fact]
+    public async Task TruncatesAnOversizedErrorBodyInsteadOfEmbeddingItInFull()
+    {
+        var oversizedBody = new string('x', 5000);
+        var handler = new FakeHandler(HttpStatusCode.BadRequest, oversizedBody);
+        var provider = new OpenAiProvider(new HttpClient(handler), new OpenAiProviderOptions { ApiKey = "sk-test", Model = "gpt-4o" });
+
+        var ex = await Assert.ThrowsAsync<AiProviderException>(() =>
+            provider.CompleteAsync(new AiPromptRequest("PCT-EXE-0026", "system", "user"), CancellationToken.None));
+
+        Assert.True(ex.Message.Length < oversizedBody.Length);
+        Assert.Contains("truncated", ex.Message);
+    }
+
+    [Fact]
     public async Task ClassifiesA401AsStructural()
     {
         var handler = new FakeHandler(HttpStatusCode.Unauthorized, "{\"error\":\"bad key\"}");
