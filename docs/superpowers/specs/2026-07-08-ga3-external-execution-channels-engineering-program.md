@@ -35,24 +35,37 @@ GA-3's purpose is to transform `aef-platform` from an internally-exercised execu
 
 None of the five deferred channels are re-evaluated as "maybe never" — they are explicitly named future roadmap items, scoped out only because they have no execution model to invent once REST exists.
 
-## 3. Channel Architecture
+## 3. Adapter Architecture
+
+Internally, GA-3 has one concept for anything that lets an external client reach `Runtime.Agent`: an **Adapter**. "Execution channel" is the user-facing/product name for the same thing (Section 2, and documentation aimed at consumers); the architecture itself speaks only in adapters, so CLI and REST are not two different kinds of thing — they are two adapters over one execution engine.
 
 ```
 External Client (CLI invocation, or HTTP caller of REST)
         ↓
-CLI  or  REST adapter          (transport parsing/serialization + ExecutionRequest/Response translation only)
+CLI Adapter  or  REST Adapter   (transport parsing/serialization + ExecutionRequest/Response translation only)
         ↓
-Runtime.Agent                  (IAgentExecutionInterface — the sole execution boundary, per ADR-0025)
+Runtime.Agent                   (IAgentExecutionInterface — the sole execution boundary, per ADR-0025)
         ↓
-EngineeringExecutionPipeline   (internal — never referenced directly by a channel)
+EngineeringExecutionPipeline    (internal — never referenced directly by an adapter)
 ```
 
-- **CLI**: a separate, short-lived executable. Parses invocation arguments, constructs an `ExecutionRequest`, calls `Runtime.Agent` in-process, prints the `ExecutionResponse`, exits. Carries no server, no listener, no shared state across invocations beyond what `Runtime.Agent`'s own session model already provides (a session id round-tripped by the caller, exactly as GA-2 designed it).
-- **REST API**: a thin HTTP adapter — deserializes a request body into `ExecutionRequest`, calls `Runtime.Agent`, serializes the `ExecutionResponse` back out. Contains transport concerns only (HTTP status mapping, content negotiation, versioned routing) — no capability-selection or routing logic, per ADR-0025 Decision 3.
-- **AEF Runtime Host**: `Host`'s idle placeholder becomes a generic, long-running composition root that hosts one or more adapters. REST is its first hosted adapter. The host itself owns nothing channel-specific — it assembles the same DI graph GA-1/GA-2 already built (`IAiProvider`, `AiExecutionService`, behaviors, `AgentExecutionService`, `ISessionStore`, `ICapabilityCatalog`) once, and adapters attach to it. Future adapters (health endpoints, SignalR, gRPC, webhooks) are named as illustrative extension points for later GAs — none are built in GA-3.
-- **Both channels depend on `Runtime.Agent` only.** This is verified by an architecture fitness test (a dependency-direction check over project references, or an equivalent static check), not left to review discipline alone — the same enforcement principle ADR-0025 already established for the `Runtime.Agent`/`EngineeringExecutionPipeline` boundary, extended one layer out to cover the two new channel projects.
+- **CLI Adapter**: a separate, short-lived executable. Parses invocation arguments, constructs an `ExecutionRequest`, calls `Runtime.Agent` in-process, prints the `ExecutionResponse`, exits. Carries no server, no listener, no shared state across invocations beyond what `Runtime.Agent`'s own session model already provides (a session id round-tripped by the caller, exactly as GA-2 designed it).
+- **REST Adapter**: a thin HTTP adapter — deserializes a request body into `ExecutionRequest`, calls `Runtime.Agent`, serializes the `ExecutionResponse` back out. Contains transport concerns only (HTTP status mapping, content negotiation, versioned routing) — no capability-selection or routing logic, per ADR-0025 Decision 3.
+- **AEF Runtime Host**: `Host`'s idle placeholder becomes a generic, long-running composition root that hosts one or more adapters. The REST Adapter is its first hosted adapter. The host itself owns nothing adapter-specific — it assembles the same DI graph GA-1/GA-2 already built (`IAiProvider`, `AiExecutionService`, behaviors, `AgentExecutionService`, `ISessionStore`, `ICapabilityCatalog`) once, and adapters attach to it. Future hosted adapters (health endpoints, SignalR, gRPC, webhooks) are named as illustrative extension points for later GAs — none are built in GA-3.
+- **Both adapters depend on `Runtime.Agent` only.** This is verified by an architecture fitness test (a dependency-direction check over project references, or an equivalent static check), not left to review discipline alone — the same enforcement principle ADR-0025 already established for the `Runtime.Agent`/`EngineeringExecutionPipeline` boundary, extended one layer out to cover the two new adapter projects.
 
-**Explicit Non-Goals for GA-3** (mirroring the discipline GA-2 itself used): no SDK, IDE, Chat, Automation, or Batch implementation. No multi-tenant identity provider integration. No new hosted adapter beyond REST (health/SignalR/gRPC/webhooks are named, not built). No redesign of `Runtime.Ai`, `Runtime.Agent`'s contracts, or `EngineeringExecutionPipeline` — GA-3 is a channel-and-host program, not a capability-redesign program.
+## Non-Goals
+
+Stated explicitly, once, so scope is frozen rather than re-litigated per Capability:
+
+- No SDK, IDE Integration, Chat Interface, Automation, or Batch Execution implementation — Section 2 names them as future consumers of the REST Adapter's contract, not as GA-3 deliverables.
+- No new hosted adapter beyond the REST Adapter — health endpoints, SignalR, gRPC, and webhooks are named in Section 3 as illustrative future extension points on the AEF Runtime Host, not built in GA-3.
+- No multi-tenant identity provider integration, and no external-caller authentication/authorization beyond the trusted-default security seam (Section 5) — real IdP integration is a deployment decision for a later GA.
+- No redesign of `Runtime.Ai`'s provider abstraction, `Runtime.Agent`'s existing contracts, or `EngineeringExecutionPipeline` — GA-3 is an adapter-and-host program, not a capability-redesign program.
+- No streaming transport (SSE/WebSockets) over the REST Adapter — GA-3's REST is request/response only; `IExecutionProgressObserver` is wired where an adapter can surface it locally (e.g. CLI), not exposed as a streaming API.
+- No server-side batch scheduling — "Batch Execution" is a calling pattern over the existing REST Adapter, not a new endpoint or execution path.
+- No specific APM/metrics vendor integration — Section 5's Observability scope is a health signal and basic request metrics; vendor selection is a deployment decision.
+- No product-specific (Ferret-, Garuda-, or any other program-specific) code anywhere in `Runtime.Agent`, an adapter, or the host — Section 6 is the entire onboarding mechanism for a new Engineering Program.
 
 ## 4. Engineering Program
 
@@ -65,14 +78,14 @@ Five capabilities, sequenced. Each becomes its own design spec + implementation 
 - **Sequence position:** First. Nothing hosted can be built before the host exists, and the concurrency audit must land before REST accepts overlapping requests for real.
 - **Completion Gate:** Host boots, hosts zero adapters cleanly (smoke-testable in isolation), the security seam has a trusted-default implementation with a passing test, and the concurrency audit has a written finding (safe as-is, or the specific fix it requires) for every shared singleton.
 
-### Capability 2 — REST API Channel
+### Capability 2 — REST Adapter
 
 - **Epics:** Versioned HTTP surface (`/v1`) over `ExecutionRequest`/`ExecutionResponse`; capability discovery endpoint over `ICapabilityCatalog`; session-carrying endpoint semantics (session id in, session id out, matching GA-2's existing session contract); error-shape mapping (`ExecutionStatus`/`ExecutionError` → HTTP status + problem-details body); cancellation propagation from client disconnect into the existing `CancellationToken` parameter.
 - **Features:** `POST /v1/execute`, `GET /v1/capabilities`, `POST /v1/sessions` (or equivalent — exact routes are a design-spec decision, not fixed here); OpenAPI/contract documentation generation.
 - **Sequence position:** Second, hosted inside Capability 1's host once it exists.
 - **Completion Gate:** A real request executes end-to-end over HTTP against the live 36/36-artifact runtime; every `ExecutionStatus` value maps to a distinct, documented HTTP outcome; concurrent requests (per Capability 1's audit) behave correctly under a real concurrent-load test, not just sequential tests.
 
-### Capability 3 — CLI Channel
+### Capability 3 — CLI Adapter
 
 - **Epics:** Argument parsing → `ExecutionRequest` construction; response formatting; session id persistence across invocations (a local convenience, e.g. an environment variable or a flag — a design-spec decision) so a human can hold a multi-turn conversation across separate process invocations.
 - **Features:** `execute` command (single request/response); `capabilities` command (lists `ICapabilityCatalog.Discover()`); exit-code convention mapping `ExecutionStatus` to process exit codes for scriptability.
@@ -82,11 +95,11 @@ Five capabilities, sequenced. Each becomes its own design spec + implementation 
 ### Capability 4 — Cross-Cutting Hardening
 
 - **Epics:** Operational logging (distinct from `IEvidenceSink`'s governance-evidence recording — this is standard application/request logging, which does not exist anywhere in the runtime today); health/diagnostics reporting; graceful shutdown (drain in-flight requests before process exit); observability (request-level metrics: count, latency, error rate).
-- **Features:** Structured log output for host lifecycle and per-request outcome; a liveness/readiness signal (used by Capability 1's host, exposed by Capability 2's REST channel — this is the one piece of Capability 2 that is genuinely cross-cutting rather than REST-specific); shutdown draining tied to the host's lifecycle hooks.
-- **Sequence position:** Fourth — applied across both channels once both exist, rather than duplicated per-channel during Capabilities 2/3.
+- **Features:** Structured log output for host lifecycle and per-request outcome; a liveness/readiness signal (used by Capability 1's host, exposed by Capability 2's REST Adapter — this is the one piece of Capability 2 that is genuinely cross-cutting rather than REST-specific); shutdown draining tied to the host's lifecycle hooks.
+- **Sequence position:** Fourth — applied across both adapters once both exist, rather than duplicated per-adapter during Capabilities 2/3.
 - **Completion Gate:** A running host reports health honestly (fails readiness if a dependency, e.g. the configured AI provider, is unreachable); a shutdown signal drains in-flight requests instead of dropping them; logs are sufficient to reconstruct what a given request did without consulting `IEvidenceSink`.
 
-### Capability 5 — Documentation & Release Readiness
+### Capability 5 — Operational Readiness
 
 - **Epics:** All documentation named in Section 7; performance validation named in Section 8; final regression run.
 - **Features:** N/A at program level — this capability is the release gate itself, detailed in Section 9.
@@ -109,10 +122,11 @@ Five capabilities, sequenced. Each becomes its own design spec + implementation 
 | Error Handling | **In scope.** Consistent `ExecutionStatus`/`ExecutionError` → HTTP status mapping (Capability 2); CLI exit-code mapping (Capability 3). |
 | Observability | **In scope.** Health signal + basic request metrics (Capability 4). Full metrics/tracing infrastructure (e.g. a specific APM vendor) is a deployment decision, not a GA-3 architectural requirement. |
 | Versioning | **In scope, hard requirement.** REST is versioned (`/v1`) from its first release because it is chartered as the durable integration surface every future channel builds on — an unversioned "canonical" surface is a contradiction. |
+| Contract Compatibility | **In scope, hard requirement.** Once Ferret, Garuda, or any future Engineering Program depends on the REST Adapter's contract (or on `ExecutionRequest`/`ExecutionResponse` directly), that contract can only change additively within a version — a breaking change requires a new version, never an in-place change to `/v1`. This is what makes Versioning meaningful rather than cosmetic: a compatibility policy (documented in the REST Guide, Section 7) and a contract test enforcing it are both required, not just the version segment in the URL. |
 
 ## 6. Product Execution
 
-Ferret, Garuda, and future Engineering Programs orchestrate entirely as callers of the existing contracts — no product-specific code exists anywhere in `Runtime.Agent`, the channels, or the host. A program's orchestration shape is:
+Ferret, Garuda, and future Engineering Programs orchestrate entirely as callers of the existing contracts — no product-specific code exists anywhere in `Runtime.Agent`, the adapters, or the host. A program's orchestration shape is:
 
 1. **Discover** — call `GET /v1/capabilities` (or the CLI `capabilities` command) to learn what the runtime can execute, rather than hardcoding capability ids.
 2. **Start or resume a session** — a program that expects multi-turn interaction (e.g. a specification review cycle) obtains a session id and reuses it; a one-shot program omits it, exactly as GA-2 designed.
@@ -140,7 +154,7 @@ Production-readiness requirements, framed against RC0's measured baseline (singl
 - **Reliability** — graceful shutdown drains in-flight requests; a crashed/unreachable AI provider degrades to honest `Failed` responses, never a hang or a fabricated result (consistent with the runtime's existing "escalate, never fabricate" discipline).
 - **Startup** — the host's cold-boot budget should not regress materially from RC0's ~1.0–1.1s; CLI's per-invocation startup (a new cost REST doesn't have, since REST pays it once) should be measured and kept small enough for scripted/Automation use.
 - **Memory** — the long-running host's working set must stay stable under sustained request load (no leak from the host's longer lifetime vs. RC0's short-lived process model).
-- **Latency** — request latency at the channel layer should add negligible overhead over the pipeline's own execution time (RC0 measured 533–711ms for a real repository-intelligence request) — the adapter is a translation layer, not a bottleneck.
+- **Latency** — request latency at the adapter layer should add negligible overhead over the pipeline's own execution time (RC0 measured 533–711ms for a real repository-intelligence request) — the adapter is a translation layer, not a bottleneck.
 - **Recovery** — process-level restart behavior on crash is a deployment decision (documented in the Deployment Guide), not a new mechanism this program builds.
 
 ## 9. Release Readiness
@@ -148,7 +162,7 @@ Production-readiness requirements, framed against RC0's measured baseline (singl
 Objective gates, all required before GA-3 is called done:
 
 - [ ] **Architecture Complete** — this document approved; each Capability's own design spec written and approved, citing this document and ADR-0025 rather than re-deriving them.
-- [ ] **Channels Complete** — CLI and REST both implemented, each meeting its Capability's completion gate (Section 4).
+- [ ] **Channels Complete** — the CLI and REST Adapters both implemented, each meeting its Capability's completion gate (Section 4), including a passing contract-compatibility test for the REST Adapter (Section 5).
 - [ ] **Documentation Complete** — every artifact in Section 7 exists.
 - [ ] **Performance Validated** — every item in Section 8 measured and recorded, concurrency audit finding resolved (not just documented as a risk).
 - [ ] **Regression Complete** — the full existing suite (324+ tests through RC0/GA-1/GA-2) plus every new Capability's tests green together.
@@ -158,7 +172,7 @@ Objective gates, all required before GA-3 is called done:
 ## Review
 
 - ✓ `Runtime.Agent` remains the only execution entry point — both CLI and REST are adapters over it; `EngineeringExecutionPipeline` is never referenced by either.
-- ✓ No architectural boundaries violated — ADR-0025's dependency direction is extended, not amended, to the two new channel projects; enforced by an architecture fitness test, not convention alone.
+- ✓ No architectural boundaries violated — ADR-0025's dependency direction is extended, not amended, to the two new adapter projects; enforced by an architecture fitness test, not convention alone.
 - ✓ Execution channels remain independent — CLI and REST share only `Runtime.Agent`'s contracts; neither depends on the other, and the AEF Runtime Host hosts REST without CLI having any relationship to that host.
 - ✓ Engineering Programs remain execution-independent — Section 6 defines orchestration entirely in terms of the existing contracts; no Ferret/Garuda-specific code anywhere in this program.
 - ✓ Product execution remains provider-neutral — nothing in this program touches `Runtime.Ai`'s provider abstraction; AI-provider neutrality (GA-1) is untouched.
