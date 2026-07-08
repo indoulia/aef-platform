@@ -6,9 +6,30 @@ namespace Kernel.Evidence;
 // Epic's own ADR, Option 3's stated Consequences.
 public sealed class InMemoryEvidenceSink : IEvidenceSink
 {
+    private readonly object _lock = new();
     private readonly List<EvidenceRecord> _records = new();
 
-    public IReadOnlyList<EvidenceRecord> Records => _records;
+    // AiExecutionService is registered as a process-wide singleton with
+    // this as its default evidence sink when none is supplied (Program.cs),
+    // so concurrent adapter requests can call Record from multiple threads
+    // at once - List<T> is not thread-safe for concurrent writes without
+    // this lock (GA-3 Capability 1 concurrency audit).
+    public IReadOnlyList<EvidenceRecord> Records
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _records.ToArray();
+            }
+        }
+    }
 
-    public void Record(EvidenceRecord record) => _records.Add(record);
+    public void Record(EvidenceRecord record)
+    {
+        lock (_lock)
+        {
+            _records.Add(record);
+        }
+    }
 }
