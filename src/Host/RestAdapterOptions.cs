@@ -10,4 +10,6 @@ public sealed class RestAdapterOptions
     public string BasePath { get; set; } = "/api/v1";
 
     public long MaxRequestBodyBytes { get; set; } = 1_048_576;
+
+    public int ShutdownTimeoutSeconds { get; set; } = 30;
 }
