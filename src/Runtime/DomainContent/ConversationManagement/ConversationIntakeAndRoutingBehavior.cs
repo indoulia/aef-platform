@@ -6,15 +6,17 @@ namespace Runtime.DomainContent.ConversationManagement;
 // The executable realization of SKL-EXE-0021 (framework/execution/skills/
 // conversation-intake-and-routing.md)'s Behavior. The governed Skill spec
 // is written as free-text/NL interpretation ("no fixed command grammar
-// required") intended for LLM-driven execution - no LLM integration point
-// exists anywhere in this Runtime today, and building one is out of this
-// Prompt's scope. This is therefore a deterministic keyword classifier
-// honoring PCT-EXE-0021's Input/Output contract shape exactly, limited to
-// the capabilities this Runtime can actually dispatch to (WFL-DEL-0001,
-// WFL-DEL-0004, the Delivery Execution skill trio, WFL-DEL-0006, WFL-DEL-0008,
-// and the repository validation path) - it never routes to a capability
-// with no executable realization, and asks for clarification rather than
-// guess.
+// required") intended for LLM-driven execution - this classifier itself
+// stays a deterministic keyword table honoring PCT-EXE-0021's Input/Output
+// contract shape exactly (routing is a cheap, low-ambiguity decision;
+// GA-1 spends its AI budget on the Skills that actually need judgment -
+// SKL-EXE-0026/27/28/29 - not on this dispatch table). Limited to the
+// capabilities this Runtime can actually dispatch to (WFL-DEL-0001,
+// WFL-DEL-0004, the Delivery Execution skill trio, WFL-DEL-0006,
+// WFL-DEL-0008, the repository validation path, WFL-DEL-0007 Specification
+// Review, and WFL-DEL-0005 Implementation Validation) - it never routes to
+// a capability with no executable realization, and asks for clarification
+// rather than guess.
 public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
 {
     private static readonly (string Keyword, string CapabilityId)[] KnownCapabilities =
@@ -29,6 +31,8 @@ public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
         ("plan", "WFL-DEL-0006"),
         ("specify", "WFL-DEL-0006"),
         ("validate", "REPO-VALIDATION"),
+        ("review specification", "WFL-DEL-0007"),
+        ("merge readiness", "WFL-DEL-0005"),
     };
 
     public object? Execute(RuntimeExecutionContext context)
@@ -49,7 +53,7 @@ public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
 
         return RoutingResult.NeedsClarification(new[]
         {
-            "Which capability should handle this request? Supported: feature, epic, delivery, analyze, plan, validate."
+            "Which capability should handle this request? Supported: feature, epic, delivery, analyze, plan, validate, review specification, merge readiness."
         });
     }
 }
