@@ -17,4 +17,5 @@ public sealed record RepositoryExecutionContext(
     bool IsGitRepository,
     string? CurrentBranch,
     bool? IsWorkingTreeClean,
-    TechnologyProfileDraft? TechnologyProfile);
+    TechnologyProfileDraft? TechnologyProfile,
+    IReadOnlyList<string>? ChangedPaths = null);
