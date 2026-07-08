@@ -48,4 +48,29 @@ public sealed class ProcessVerificationRunnerTests
 
         Assert.Throws<ArgumentException>(() => runner.Run(Directory.GetCurrentDirectory(), string.Empty, Array.Empty<string>()));
     }
+
+    [Fact]
+    public async Task CommandWritingLargeOutputToBothStreamsConcurrently_DoesNotDeadlock()
+    {
+        // Regression: reading stdout to completion before starting to read
+        // stderr (or vice versa) deadlocks as soon as the un-drained
+        // stream fills its OS pipe buffer. A real build/test command
+        // (e.g. `dotnet test`, `npm test`) routinely writes large,
+        // concurrent output on both streams - this reproduces that shape
+        // deterministically. Guarded by Task.WhenAny(timeout) rather than
+        // a bare call so a reintroduced deadlock fails the test instead of
+        // hanging the whole run.
+        var runner = new ProcessVerificationRunner();
+        var script = "$out = [string]::new('A', 200); $err = [string]::new('B', 200); " +
+                     "for ($i = 0; $i -lt 20000; $i++) { Write-Output $out; [Console]::Error.WriteLine($err) }";
+
+        var task = Task.Run(() => runner.Run(Directory.GetCurrentDirectory(), "powershell", new[] { "-NoProfile", "-Command", script }));
+        var winner = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(30)));
+
+        Assert.Same(task, winner);
+        var result = await task;
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.StandardOutput.Length > 1_000_000, $"Expected >1MB stdout, got {result.StandardOutput.Length} bytes.");
+        Assert.True(result.StandardError.Length > 1_000_000, $"Expected >1MB stderr, got {result.StandardError.Length} bytes.");
+    }
 }

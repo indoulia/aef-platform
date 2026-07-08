@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Threading;
 using Runtime.Integration.GitOperations;
 
 namespace Runtime.Tests.Integration.GitOperations;
@@ -27,7 +28,10 @@ public class LocalGitOperationsTests
 
     // git marks its own object-store files read-only on Windows;
     // Directory.Delete fails on those unless the read-only attribute is
-    // cleared first - a test-only concern, not a Runtime behavior.
+    // cleared first - a test-only concern, not a Runtime behavior. Retried
+    // briefly because Windows can hold a transient handle on a just-written
+    // file (e.g. AV scanning) for a few hundred ms after a large git
+    // operation - also test-only, not a Runtime behavior.
     private static void DeleteRepository(string root)
     {
         foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
@@ -35,7 +39,18 @@ public class LocalGitOperationsTests
             File.SetAttributes(file, FileAttributes.Normal);
         }
 
-        Directory.Delete(root, true);
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                Directory.Delete(root, true);
+                return;
+            }
+            catch (IOException) when (attempt < 5)
+            {
+                Thread.Sleep(200);
+            }
+        }
     }
 
     [Fact]
@@ -142,6 +157,58 @@ public class LocalGitOperationsTests
             var result = ops.CheckMergeReadiness("feature/x", "main");
 
             Assert.True(result.IsReady, string.Join("; ", result.Reasons));
+        }
+        finally
+        {
+            DeleteRepository(root);
+        }
+    }
+
+    [Fact]
+    public void GetStatus_RenamedFile_ReportsTheDestinationPathNotTheRawPorcelainLine()
+    {
+        // Regression: `git status --porcelain` emits rename/copy lines as
+        // "R  old -> new" - naive `trimmed[3..]` parsing previously
+        // returned the literal string "old -> new" instead of a usable path.
+        var root = InitRepository();
+        try
+        {
+            var ops = new LocalGitOperations(root);
+            RunGit(root, "mv", "README.md", "RENAMED.md");
+
+            var status = ops.GetStatus();
+
+            Assert.Contains("RENAMED.md", status.ModifiedPaths.Concat(status.UntrackedPaths));
+            Assert.DoesNotContain(status.ModifiedPaths.Concat(status.UntrackedPaths), p => p.Contains("->"));
+        }
+        finally
+        {
+            DeleteRepository(root);
+        }
+    }
+
+    [Fact]
+    public async Task GetDiff_LargeChange_CompletesWithoutDeadlockAndReturnsFullContent()
+    {
+        // Regression: reading stdout to completion before starting to read
+        // stderr (or vice versa) deadlocks once the un-drained stream
+        // fills its OS pipe buffer - `git diff` on a multi-megabyte change
+        // is exactly the realistic trigger. Guarded by Task.WhenAny(timeout)
+        // so a reintroduced deadlock fails the test instead of hanging
+        // the whole run.
+        var root = InitRepository();
+        try
+        {
+            var ops = new LocalGitOperations(root);
+            var largeContent = string.Concat(Enumerable.Repeat("line of content padding the diff output\n", 100_000));
+            File.WriteAllText(Path.Combine(root, "README.md"), largeContent);
+
+            var task = Task.Run(() => ops.GetDiff());
+            var winner = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(30)));
+
+            Assert.Same(task, winner);
+            var diff = await task;
+            Assert.True(diff.Length > 1_000_000, $"Expected >1MB diff output, got {diff.Length} bytes.");
         }
         finally
         {

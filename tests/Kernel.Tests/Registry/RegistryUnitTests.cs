@@ -146,6 +146,42 @@ public class RegistryUnitTests
         Assert.Contains(all, e => e.Id == "def-2" && e.Domain == "domain-b");
     }
 
+    [Fact]
+    public void Register_ConcurrentDuplicateSubmissions_ExactlyOneSucceeds()
+    {
+        // Regression: a plain Dictionary guarded by a ContainsKey-then-index
+        // check lets two racing Register calls for the same Id both "win",
+        // defeating the no-silent-overwrite guarantee - only possible to
+        // observe under genuine concurrency, not sequential calls.
+        var registry = new InMemoryRegistry();
+        const int attempts = 50;
+
+        var results = new RegisterResult[attempts];
+        Parallel.For(0, attempts, i =>
+        {
+            results[i] = registry.Register(new DefinitionSubmission("def-race", $"domain-{i}"));
+        });
+
+        Assert.Single(results, r => r.Outcome == RegisterOutcome.Success);
+        Assert.Equal(attempts - 1, results.Count(r => r.Outcome == RegisterOutcome.RejectedDuplicate));
+        Assert.Single(registry.All());
+    }
+
+    [Fact]
+    public void Register_ManyDistinctIdsConcurrently_AllSucceedAndAllAreQueryable()
+    {
+        var registry = new InMemoryRegistry();
+        const int count = 200;
+
+        Parallel.For(0, count, i => registry.Register(new DefinitionSubmission($"def-{i}", "domain-a")));
+
+        Assert.Equal(count, registry.All().Count);
+        for (var i = 0; i < count; i++)
+        {
+            Assert.True(registry.Query($"def-{i}").Found);
+        }
+    }
+
     private sealed class FakeEvidenceSink : IEvidenceSink
     {
         public List<EvidenceRecord> Records { get; } = new();

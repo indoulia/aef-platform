@@ -309,6 +309,34 @@ public class EngineeringExecutionPipelineTests
     }
 
     [Fact]
+    public void Execute_ValidateRequest_EmptyStringRepositoryPayloadValues_ReturnsClarificationDiagnostic_NeverThrows()
+    {
+        // Regression: TryGetRepositoryContext only checked "is string",
+        // not IsNullOrEmpty - an empty (not missing) RepositoryRoot/Name
+        // used to flow into RepositoryContextFactory.Create, which throws
+        // ArgumentException from LocalFileSystemRepositoryScanner/
+        // LocalGitOperations's own constructors, crashing the pipeline
+        // instead of degrading to this method's own documented "never a
+        // fabricated empty context" clarification diagnostic.
+        var validationBehaviors = new Dictionary<string, IBehavior>
+        {
+            ["REPO-VALIDATION"] = new RepositoryValidationSkillBehavior(new StubVerificationRunner(new VerificationRunResult(0, string.Empty, string.Empty))),
+        };
+        var runtime = BootWithBehaviors(ConversationBehaviors(validationBehaviors));
+        runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0021", "Execution"));
+        runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0022", "Execution"));
+        runtime.Kernel.Registry.Register(new DefinitionSubmission("REPO-VALIDATION", "Execution"));
+        var pipeline = new EngineeringExecutionPipeline(runtime);
+        var payload = new Dictionary<string, object> { ["RepositoryName"] = "test-repo", ["RepositoryRoot"] = string.Empty };
+
+        var result = pipeline.Execute(new EngineeringRequest("Validate the build", "default-profile", payload));
+
+        Assert.False(result.Success);
+        Assert.Null(result.RepositoryAnalyzed);
+        Assert.Contains(result.Diagnostics, d => d.Contains("No repository context was supplied"));
+    }
+
+    [Fact]
     public void Execute_ValidateRequest_DirtyWorkingTree_ReportsFilesChanged()
     {
         var root = InitDotnetGitRepository();
