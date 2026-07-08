@@ -47,8 +47,13 @@ public sealed class ValidationFindingsSynthesisBehavior : IBehavior
             return ValidationFindingsSynthesisResult.Escalated($"AI response for {PromptContractId} could not be parsed: {string.Join("; ", errors)}.");
         }
 
+        if (parsed!.Review_Instance is null || parsed.Review_Instance.Findings is null || parsed.Merge_Readiness_Signal is null)
+        {
+            return ValidationFindingsSynthesisResult.Escalated($"AI response for {PromptContractId} was missing review_instance or merge_readiness_signal.");
+        }
+
         var reviewInstance = new EngineeringReviewInstance(
-            parsed!.Review_Instance.Review_Target,
+            parsed.Review_Instance.Review_Target,
             ReviewIteration: 1,
             parsed.Review_Instance.Findings.Select(f => new EngineeringReviewFinding(f.Area, f.Severity, f.Reason, f.Evidence, f.Recommendation)).ToList());
 

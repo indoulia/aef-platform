@@ -36,16 +36,20 @@ public sealed class OpenAiProvider : IAiProvider
         });
 
         HttpResponseMessage response;
+        string body;
         try
         {
             response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            body = await response.Content.ReadAsStringAsync(cancellationToken);
         }
         catch (HttpRequestException ex)
         {
             throw new AiProviderException($"OpenAI request failed: {ex.Message}", isTransient: true, ex);
         }
-
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        catch (IOException ex)
+        {
+            throw new AiProviderException($"OpenAI response could not be read: {ex.Message}", isTransient: true, ex);
+        }
 
         if (!response.IsSuccessStatusCode)
         {
