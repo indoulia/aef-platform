@@ -172,6 +172,27 @@ public class StrategyHostUnitTests
             publicMethodNames);
     }
 
+    [Fact]
+    public void Activate_ConcurrentCalls_NoCorruption()
+    {
+        // GA-3 Capability 5's real-concurrent-HTTP-request test found this
+        // class's underlying Dictionary corrupted under concurrent REST
+        // requests - fixed via ConcurrentDictionary. Regression test:
+        // many concurrent Activate calls against the same registered
+        // strategy must not throw and every resulting instance id must
+        // be unique and retrievable.
+        var kernel = BootWithAllowAllPolicy();
+        kernel.Registry.Register(new DefinitionSubmission("strategy-1", "domain-strategies"));
+        var host = new StrategyHost(kernel.Supervisor, new ExecutionContextManager());
+        const int count = 200;
+        var results = new StrategyActivationResult[count];
+
+        Parallel.For(0, count, i => results[i] = host.Activate(new ActivationRequest("strategy-1"), MinimalSeed()));
+
+        Assert.All(results, r => Assert.Equal(StrategyActivationOutcome.Created, r.Outcome));
+        Assert.Equal(count, results.Select(r => r.Handle!.InstanceId).Distinct().Count());
+    }
+
     private static StrategyInstanceHandle ActivateRegisteredStrategy()
     {
         var kernel = BootWithAllowAllPolicy();
