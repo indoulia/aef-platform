@@ -52,6 +52,14 @@ public class EngineeringArchitectureManifestTests
         // BaselineQualityGateContentRegistrationTests
         Assert.Contains("SKL-EXE-0017", ids);
         Assert.Contains("AGT-EXE-0009", ids);
+        // Delivery Execution + Conversation Manager (AEF v1.0 RC0 Prompt P2)
+        Assert.Contains("AGT-EXE-0010", ids);
+        Assert.Contains("SKL-EXE-0018", ids);
+        Assert.Contains("SKL-EXE-0019", ids);
+        Assert.Contains("SKL-EXE-0020", ids);
+        Assert.Contains("AGT-EXE-0011", ids);
+        Assert.Contains("SKL-EXE-0021", ids);
+        Assert.Contains("SKL-EXE-0022", ids);
     }
 }
 
