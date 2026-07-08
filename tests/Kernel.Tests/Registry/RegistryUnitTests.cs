@@ -123,6 +123,29 @@ public class RegistryUnitTests
         Assert.NotNull(record.Reason);
     }
 
+    [Fact]
+    public void All_NoEntries_ReturnsEmpty()
+    {
+        var registry = new InMemoryRegistry();
+
+        Assert.Empty(registry.All());
+    }
+
+    [Fact]
+    public void All_AfterRegistrations_ReturnsEveryEntry()
+    {
+        var registry = new InMemoryRegistry();
+        registry.Register(new DefinitionSubmission("def-1", "domain-a"));
+        registry.Register(new DefinitionSubmission("def-2", "domain-b"));
+        registry.Register(new DefinitionSubmission("def-1", "domain-c")); // duplicate, rejected — must not appear twice
+
+        var all = registry.All();
+
+        Assert.Equal(2, all.Count);
+        Assert.Contains(all, e => e.Id == "def-1" && e.Domain == "domain-a");
+        Assert.Contains(all, e => e.Id == "def-2" && e.Domain == "domain-b");
+    }
+
     private sealed class FakeEvidenceSink : IEvidenceSink
     {
         public List<EvidenceRecord> Records { get; } = new();
