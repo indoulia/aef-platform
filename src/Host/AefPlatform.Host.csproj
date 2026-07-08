@@ -18,6 +18,7 @@
     <ProjectReference Include="..\Runtime\Runtime.csproj" />
     <ProjectReference Include="..\Runtime.Agent\Runtime.Agent.csproj" />
     <ProjectReference Include="..\Adapters.Rest\Adapters.Rest.csproj" />
+    <ProjectReference Include="..\Composition\AefPlatform.Composition.csproj" />
   </ItemGroup>
 
   <ItemGroup>

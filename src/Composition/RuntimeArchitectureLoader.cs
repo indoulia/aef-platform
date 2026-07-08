@@ -1,3 +1,6 @@
+// Physically lives in src/Composition/AefPlatform.Composition.csproj -
+// namespace unchanged from its prior home in src/Host, see Capability 3's
+// design Decision 1.
 using Kernel.Registry;
 using Runtime.Bootstrapping;
 
