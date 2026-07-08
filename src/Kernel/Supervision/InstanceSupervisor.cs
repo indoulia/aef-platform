@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Kernel.Evidence;
 using Kernel.Governance;
 
@@ -8,7 +9,10 @@ public sealed class InstanceSupervisor : IInstanceSupervisor
     private readonly IGovernanceBoundary _governanceBoundary;
     private readonly IResourceAdmissionGate? _resourceAdmissionGate;
     private readonly IEvidenceSink _evidenceSink;
-    private readonly Dictionary<string, InstanceStatus> _activeInstances = new();
+    // ConcurrentDictionary: CreateInstance/DestroyInstance/IsActive run
+    // concurrently for independently-supervised Agent/Skill instances in a
+    // long-running host - a plain Dictionary has no such guarantee.
+    private readonly ConcurrentDictionary<string, InstanceStatus> _activeInstances = new();
 
     public InstanceSupervisor(
         IGovernanceBoundary governanceBoundary,
@@ -52,13 +56,9 @@ public sealed class InstanceSupervisor : IInstanceSupervisor
 
     public DestroyResult DestroyInstance(string instanceId)
     {
-        if (!_activeInstances.ContainsKey(instanceId))
-        {
-            return new DestroyResult(DestroyOutcome.NotFound);
-        }
-
-        _activeInstances.Remove(instanceId);
-        return new DestroyResult(DestroyOutcome.Destroyed);
+        return _activeInstances.TryRemove(instanceId, out _)
+            ? new DestroyResult(DestroyOutcome.Destroyed)
+            : new DestroyResult(DestroyOutcome.NotFound);
     }
 
     public bool IsActive(string instanceId) => _activeInstances.ContainsKey(instanceId);

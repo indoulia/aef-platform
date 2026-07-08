@@ -99,6 +99,26 @@ public class InstanceSupervisorUnitTests
         Assert.Equal(DestroyOutcome.NotFound, destroyResult.Outcome);
     }
 
+    [Fact]
+    public void CreateInstance_ManyConcurrentCallsForTheSameDefinition_EachGetsAUniqueTrackedInstance()
+    {
+        // Regression: a plain Dictionary indexer-write from concurrent
+        // CreateInstance calls is a race against DestroyInstance/IsActive
+        // readers - only observable under genuine concurrency.
+        var supervisor = new InstanceSupervisor(AlwaysAuthorizingBoundary());
+        const int count = 200;
+
+        var handles = new InstanceHandle?[count];
+        Parallel.For(0, count, i =>
+        {
+            handles[i] = supervisor.CreateInstance(new ActivationRequest("def-1")).Handle;
+        });
+
+        Assert.All(handles, h => Assert.NotNull(h));
+        Assert.Equal(count, handles.Select(h => h!.InstanceId).Distinct().Count());
+        Assert.All(handles, h => Assert.True(supervisor.IsActive(h!.InstanceId)));
+    }
+
     private sealed class AllowAllPolicyResolver : IPolicyResolver
     {
         public PolicyResolution Resolve(ActivationRequest request) => PolicyResolution.Authorize();

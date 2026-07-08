@@ -45,6 +45,17 @@ public sealed class LocalGitOperations : IGitOperations
 
                 var marker = trimmed[..2];
                 var path = trimmed[3..];
+                if (marker[0] is 'R' or 'C')
+                {
+                    // Rename/copy porcelain lines are "old -> new" - the
+                    // destination path is what a caller means by "changed".
+                    var arrowIndex = path.IndexOf(" -> ", StringComparison.Ordinal);
+                    if (arrowIndex >= 0)
+                    {
+                        path = path[(arrowIndex + 4)..];
+                    }
+                }
+
                 if (marker == "??")
                 {
                     untracked.Add(path);
@@ -126,6 +137,8 @@ public sealed class LocalGitOperations : IGitOperations
         return new MergeReadinessResult(reasons.Count == 0, reasons);
     }
 
+    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(120);
+
     private (int ExitCode, string StandardOutput, string StandardError) RunGit(params string[] arguments)
     {
         var startInfo = new ProcessStartInfo("git")
@@ -145,10 +158,35 @@ public sealed class LocalGitOperations : IGitOperations
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start the 'git' process - is Git installed and on PATH?");
 
-        var standardOutput = process.StandardOutput.ReadToEnd();
-        var standardError = process.StandardError.ReadToEnd();
-        process.WaitForExit();
+        // Reading one stream to completion before starting the other
+        // deadlocks as soon as the un-drained stream fills its OS pipe
+        // buffer (e.g. `git diff` on a large change plus any stderr
+        // warning) - both streams must be drained concurrently.
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        var standardErrorTask = process.StandardError.ReadToEndAsync();
+
+        if (!process.WaitForExit((int)ProcessTimeout.TotalMilliseconds))
+        {
+            TryKill(process);
+            throw new TimeoutException($"git {string.Join(' ', arguments)} did not exit within {ProcessTimeout}.");
+        }
+
+        var standardOutput = standardOutputTask.GetAwaiter().GetResult();
+        var standardError = standardErrorTask.GetAwaiter().GetResult();
 
         return (process.ExitCode, standardOutput, standardError);
+    }
+
+    private static void TryKill(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+            // Best-effort only - the process may have exited between the
+            // timeout check and this call.
+        }
     }
 }

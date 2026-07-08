@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Kernel.Evidence;
 
 namespace Kernel.Registry;
@@ -6,7 +7,14 @@ namespace Kernel.Registry;
 // implementation, exposed only through IRegistry (I4 §7 public/internal rule).
 public sealed class InMemoryRegistry : IRegistry
 {
-    private readonly Dictionary<string, RegistryEntry> _store = new();
+    // ConcurrentDictionary + TryAdd, not a plain Dictionary guarded by a
+    // ContainsKey-then-index check: this Runtime's Registry is read and
+    // written from a long-running host under concurrent Agent/Skill
+    // activity, and a check-then-act pair on a plain Dictionary is a race
+    // that can let two concurrent Register calls for the same Id both
+    // "win" (defeating the no-silent-overwrite guarantee below) or corrupt
+    // the Dictionary's internal state entirely.
+    private readonly ConcurrentDictionary<string, RegistryEntry> _store = new();
     private readonly IEvidenceSink _evidenceSink;
 
     public InMemoryRegistry(IEvidenceSink? evidenceSink = null)
@@ -23,15 +31,13 @@ public sealed class InMemoryRegistry : IRegistry
             return RegisterResult.RejectedMalformed(reason);
         }
 
-        if (_store.ContainsKey(submission.Id))
+        var entry = new RegistryEntry(submission.Id, submission.Domain, RegistryEntryStatus.Active);
+        if (!_store.TryAdd(submission.Id, entry))
         {
             const string reason = "An entry with this Id is already Registered — no silent overwrite.";
             RecordDecision("Reject", submission.Id, reason);
             return RegisterResult.RejectedDuplicate(reason);
         }
-
-        var entry = new RegistryEntry(submission.Id, submission.Domain, RegistryEntryStatus.Active);
-        _store[submission.Id] = entry;
 
         RecordDecision("Accept", submission.Id, reason: null);
 
