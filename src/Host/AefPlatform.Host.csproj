@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Runtime\Runtime.csproj" />
+    <ProjectReference Include="..\Runtime.Agent\Runtime.Agent.csproj" />
   </ItemGroup>
 
   <ItemGroup>

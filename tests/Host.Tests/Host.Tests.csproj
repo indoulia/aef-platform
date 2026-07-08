@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Host\AefPlatform.Host.csproj" />
     <ProjectReference Include="..\..\src\Runtime\Runtime.csproj" />
+    <ProjectReference Include="..\..\src\Runtime.Agent\Runtime.Agent.csproj" />
     <ProjectReference Include="..\..\src\Kernel\Kernel.csproj" />
   </ItemGroup>
 
