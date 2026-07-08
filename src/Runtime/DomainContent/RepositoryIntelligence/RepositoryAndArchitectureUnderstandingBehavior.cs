@@ -31,6 +31,17 @@ public sealed class RepositoryAndArchitectureUnderstandingBehavior : IBehavior
             return new RepositoryUnderstandingResult(new[] { finding }, "The repository could not be read.");
         }
 
+        if (string.IsNullOrWhiteSpace(request.RequestScope))
+        {
+            // string.Contains("") is always true - without this guard an
+            // empty/whitespace scope would match the first scanned entry
+            // and fabricate a Pass finding, violating PCT-EXE-0030's own
+            // "never a fabricated claim" postcondition.
+            var finding = new IntelligenceFinding("RAU-0001", "Repository Understanding", FindingClass.Unknown,
+                "No request scope was supplied - cannot search for an empty name.", "n/a");
+            return new RepositoryUnderstandingResult(new[] { finding }, "No request scope was supplied.");
+        }
+
         var scanner = new LocalFileSystemRepositoryScanner(request.RepositoryContext.RepositoryRoot);
         var match = FindMatch(scanner, request.RequestScope);
 

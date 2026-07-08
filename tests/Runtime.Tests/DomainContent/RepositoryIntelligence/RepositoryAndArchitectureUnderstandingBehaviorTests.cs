@@ -57,6 +57,26 @@ public class RepositoryAndArchitectureUnderstandingBehaviorTests
     }
 
     [Fact]
+    public void Execute_EmptyRequestScope_ReturnsUnknownFinding_NeverFabricatesAMatch()
+    {
+        var root = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, ".git"));
+            var repoContext = new RepositoryExecutionContext(root, "test-repo", true, false, null, null, null);
+            var behavior = new RepositoryAndArchitectureUnderstandingBehavior();
+
+            var result = (RepositoryUnderstandingResult)behavior.Execute(ContextWith(new RepositoryUnderstandingRequest("", repoContext)))!;
+
+            Assert.Equal(FindingClass.Unknown, result.Findings[0].Class);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public void Execute_NoMatch_ReturnsUnknownFinding()
     {
         var root = Directory.CreateTempSubdirectory().FullName;
