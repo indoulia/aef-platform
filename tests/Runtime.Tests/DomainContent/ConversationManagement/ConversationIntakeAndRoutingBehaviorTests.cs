@@ -17,6 +17,9 @@ public class ConversationIntakeAndRoutingBehaviorTests
     [InlineData("Implement the new feature for X", "WFL-DEL-0001")]
     [InlineData("Start the epic for repository onboarding", "WFL-DEL-0004")]
     [InlineData("Deliver the fix for the bug", "SKL-EXE-0018")]
+    [InlineData("Please analyze the repository", "WFL-DEL-0008")]
+    [InlineData("Plan the specification for a new capability", "WFL-DEL-0006")]
+    [InlineData("Validate the build", "REPO-VALIDATION")]
     public void Execute_KnownKeyword_RoutesToTheMatchingCapability(string userRequest, string expectedCapabilityId)
     {
         var behavior = new ConversationIntakeAndRoutingBehavior();
