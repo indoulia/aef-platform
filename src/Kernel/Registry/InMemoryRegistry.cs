@@ -54,4 +54,6 @@ public sealed class InMemoryRegistry : IRegistry
             ? QueryResult.FoundResult(entry)
             : QueryResult.NotFound;
     }
+
+    public IReadOnlyCollection<RegistryEntry> All() => _store.Values.ToList();
 }
