@@ -1,6 +1,7 @@
 using Adapters.Rest;
 using AefPlatform.Host;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -131,8 +132,20 @@ app.UseExceptionHandler(errorApp =>
 {
     errorApp.Run(async context =>
     {
-        await Results.Problem(detail: "An unexpected error occurred.", statusCode: StatusCodes.Status500InternalServerError)
-            .ExecuteAsync(context);
+        // BadHttpRequestException (e.g. malformed JSON on a [FromBody]
+        // parameter) already carries the correct 4xx status - only an
+        // exception with no such classification is a genuine, unexpected
+        // 500. Never surfaces the exception's own message either way, per
+        // "do not expose internal exceptions" (design Decision 9).
+        var exception = context.Features.Get<IExceptionHandlerPathFeature>()?.Error;
+        var statusCode = exception is BadHttpRequestException badHttpRequestException
+            ? badHttpRequestException.StatusCode
+            : StatusCodes.Status500InternalServerError;
+        var detail = statusCode == StatusCodes.Status500InternalServerError
+            ? "An unexpected error occurred."
+            : "The request could not be processed.";
+
+        await Results.Problem(detail: detail, statusCode: statusCode).ExecuteAsync(context);
     });
 });
 
