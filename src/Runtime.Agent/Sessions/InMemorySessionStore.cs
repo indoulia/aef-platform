@@ -23,19 +23,23 @@ public sealed class InMemorySessionStore : ISessionStore
 
     public ExecutionSession Touch(string sessionId, string? projectProfileId, IReadOnlyDictionary<string, object>? payload)
     {
-        if (!_sessions.TryGetValue(sessionId, out var existing))
-        {
-            throw new KeyNotFoundException($"No session exists for id '{sessionId}'.");
-        }
-
-        var updated = existing with
-        {
-            LastActivityAt = DateTimeOffset.UtcNow,
-            LastProjectProfileId = projectProfileId ?? existing.LastProjectProfileId,
-            LastPayload = payload ?? existing.LastPayload,
-            TurnCount = existing.TurnCount + 1,
-        };
-        _sessions[sessionId] = updated;
-        return updated;
+        // AddOrUpdate's updateValueFactory runs atomically against the
+        // dictionary's current value (retried internally if another
+        // thread wins a race), closing the read-then-write gap the
+        // previous TryGetValue-then-index-write pair left open (GA-3
+        // Capability 1 concurrency audit): two overlapping Touch calls on
+        // the same session id could otherwise lose one call's TurnCount
+        // increment. addValueFactory only runs for an unknown id,
+        // preserving the original throw-on-unknown-session behavior.
+        return _sessions.AddOrUpdate(
+            sessionId,
+            addValueFactory: _ => throw new KeyNotFoundException($"No session exists for id '{sessionId}'."),
+            updateValueFactory: (_, existing) => existing with
+            {
+                LastActivityAt = DateTimeOffset.UtcNow,
+                LastProjectProfileId = projectProfileId ?? existing.LastProjectProfileId,
+                LastPayload = payload ?? existing.LastPayload,
+                TurnCount = existing.TurnCount + 1,
+            });
     }
 }
