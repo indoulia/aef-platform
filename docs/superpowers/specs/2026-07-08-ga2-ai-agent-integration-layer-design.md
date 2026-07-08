@@ -20,9 +20,7 @@ New class library **`src/Runtime.Agent`** (namespace `Runtime.Agent`), sitting b
 
 This is a compile-time governance guarantee, not just a convention: `Runtime.Agent` physically cannot call an `IAiProvider`, `AiExecutionService`, or any `IBehavior` directly. The only way into governed execution is `EngineeringExecutionPipeline.Execute()`, which already enforces routing (`SKL-EXE-0021`) and dispatch. "No bypass of the engineering workflow" is structural.
 
-Rejected alternatives:
-- Folding this into `Runtime` — blurs the boundary between internal domain behaviors and the stable public contract the brief explicitly wants ("these become the public interface for future products").
-- Putting it in `Host` — `Host` is composition-root only; embedding channel-agnostic logic there would force every future channel to depend on the composition root or duplicate logic, violating "without channel-specific business logic" / "no duplicated execution logic."
+This boundary is now a standing architectural invariant for the whole program, recorded in `ai-engineering-framework/epics/decisions/0025-public-execution-interface-boundary.md` (**ADR-0025**): `Runtime.Agent` is the sole public execution boundary, `EngineeringExecutionPipeline` stays internal, and every future channel (GA-3's CLI/REST/IDE/Chat) must depend on `Runtime.Agent` only, never on `Runtime`/`Kernel` directly. See ADR-0025 for the full rationale and alternatives considered — it is not re-derived here.
 
 `Host`'s only change: a few lines in `Program.cs` registering `AgentExecutionService`/`InMemorySessionStore`/`EngineeringAgentCapabilityCatalog` in DI. No configuration section is needed — there is nothing to configure (no ports, no endpoints).
 
@@ -38,9 +36,13 @@ namespace Runtime.Execution;
 public enum ExecutionResultKind
 {
     Unspecified = 0,
-    NeedsClarification,
+    Completed = 1,
+    NeedsClarification = 2,
+    Failed = 3,
 }
 ```
+
+`Completed` and `Failed` are reserved vocabulary, not populated by any call site in GA-2 — every existing return path keeps defaulting to `Unspecified` and is derived from `Success` exactly as before. Only the `NeedsClarification` branch is touched. Reserving the full set now means a future pipeline change that wants to populate `Completed`/`Failed` explicitly (e.g. to distinguish more failure shapes) doesn't require another contract change to `ExecutionResult` — just population of values that already exist.
 
 ...and one new optional trailing field on `ExecutionResult`:
 
@@ -65,9 +67,9 @@ Exactly **one** existing call site changes — the `NeedsClarification` branch i
 `Runtime.Agent` derives its own public `ExecutionStatus` this way, without duplicating the pipeline's routing decision:
 
 ```
-Kind == NeedsClarification            -> ExecutionStatus.NeedsClarification
-Kind == Unspecified && Success        -> ExecutionStatus.Completed
-Kind == Unspecified && !Success       -> ExecutionStatus.Failed
+Kind == NeedsClarification                     -> ExecutionStatus.NeedsClarification
+Kind == Completed || (Kind == Unspecified && Success)   -> ExecutionStatus.Completed
+Kind == Failed    || (Kind == Unspecified && !Success)  -> ExecutionStatus.Failed
 ```
 
 `ExecutionResultKind` (internal, `Runtime.Execution`) and `ExecutionStatus` (public, `Runtime.Agent`) are intentionally two different types — the pipeline's internal classification is not the same thing as the product-facing contract, and keeping them separate means either can evolve without forcing a change in the other.
