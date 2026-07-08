@@ -36,6 +36,7 @@ builder.Services
 
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = restOptions.MaxRequestBodyBytes);
 builder.WebHost.UseUrls($"http://localhost:{restOptions.Port}");
+builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(restOptions.ShutdownTimeoutSeconds));
 
 builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
