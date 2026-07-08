@@ -108,8 +108,17 @@ public sealed class LocalGitOperations : IGitOperations
             reasons.Add($"'{branchName}' is the default branch - nothing to merge into itself.");
         }
 
+        // A working tree's clean/dirty state belongs to whatever is
+        // currently checked out, not to an arbitrary named branch - a
+        // symlink-free but analogous conflation to the path-escape class
+        // of bug (Architecture Decision 2's own "evidence-only, never
+        // guess" discipline applies here too). Only attribute this signal
+        // to branchName when it is actually the current checkout; a
+        // non-checked-out branch's own tree cannot be inspected without
+        // mutating state (checking it out), which this evidence-only
+        // check deliberately never does.
         var status = GetStatus();
-        if (!status.IsClean)
+        if (string.Equals(status.CurrentBranch, branchName, StringComparison.Ordinal) && !status.IsClean)
         {
             reasons.Add("The working tree has uncommitted changes.");
         }
