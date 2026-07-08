@@ -91,6 +91,8 @@ public class RuntimeCatalogUnitTests
         public RegisterResult Register(DefinitionSubmission submission) => throw new NotSupportedException();
 
         public QueryResult Query(string id) => NextResult;
+
+        public IReadOnlyCollection<RegistryEntry> All() => throw new NotSupportedException();
     }
 
     private sealed class FixedConformanceProvider : IContractConformanceProvider
