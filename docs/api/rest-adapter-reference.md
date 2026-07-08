@@ -22,7 +22,7 @@ Request body: `{ "projectProfileId": null }`. Returns a new `Runtime.Agent.Execu
 
 ## `GET /api/v1/health`
 
-Returns `{ "status": "Healthy" }` unconditionally, `200 OK`. Real health-contributor logic is Capability 4's chartered scope — this is an honest placeholder, not yet a live signal.
+Returns `{ "status": "Healthy" | "Degraded" | "Unhealthy" }`, aggregated from every registered `Runtime.Agent.Health.IRuntimeHealthContributor` (currently one: AI-provider network reachability). `200 OK` for `Healthy`/`Degraded`; `503 Service Unavailable` for `Unhealthy` — a distinct HTTP outcome from this Capability, not part of the `/api/v1/execution` error-mapping table.
 
 ## `GET /api/v1/version`
 
@@ -38,7 +38,11 @@ Every `/api/v1/execution` call passes through `ISecurityEvaluator` before `Runti
 
 ## Configuration
 
-`appsettings.json`'s `RestAdapter` section: `Port` (default `5080`), `BasePath` (default `/api/v1`), `MaxRequestBodyBytes` (default `1048576`).
+`appsettings.json`'s `RestAdapter` section: `Port` (default `5080`), `BasePath` (default `/api/v1`), `MaxRequestBodyBytes` (default `1048576`), `ShutdownTimeoutSeconds` (default `30` — how long `IHost.StopAsync` waits for in-flight requests to drain before forcing a stop).
+
+## Logging and metrics
+
+Every REST request logs a "Request started"/"Request completed" pair (method, path, status code, duration) via `ILogger` — sufficient to reconstruct what a given request did without consulting `IEvidenceSink`. Basic request metrics (`aef.rest.requests`, `aef.rest.errors` counters; `aef.rest.request_duration_ms` histogram) are recorded via `System.Diagnostics.Metrics` under meter name `AefPlatform.Adapters.Rest` — observable with `dotnet-counters monitor AefPlatform.Host` or any compatible listener; no vendor is bundled.
 
 ## Deployment notes
 

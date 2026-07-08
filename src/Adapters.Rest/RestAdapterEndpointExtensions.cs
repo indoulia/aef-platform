@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Runtime.Agent;
+using Runtime.Agent.Health;
 using Runtime.Agent.Security;
 
 namespace Adapters.Rest;
@@ -65,7 +66,15 @@ public static class RestAdapterEndpointExtensions
         return Results.Json(agent.StartSession(request.ProjectProfileId), statusCode: StatusCodes.Status201Created);
     }
 
-    private static IResult Health() => Results.Ok(new RestHealthResponse("Healthy"));
+    private static IResult Health(IEnumerable<IRuntimeHealthContributor> contributors)
+    {
+        var aggregate = RuntimeHealthAggregator.Aggregate(contributors);
+        var response = new RestHealthResponse(aggregate.Status.ToString());
+
+        return aggregate.Status == RuntimeHealthStatus.Unhealthy
+            ? Results.Json(response, statusCode: StatusCodes.Status503ServiceUnavailable)
+            : Results.Ok(response);
+    }
 
     private static IResult Version() => Results.Ok(new RestVersionResponse(GetInformationalVersion()));
 

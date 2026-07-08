@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Runtime.Agent;
 using Runtime.Agent.Capabilities;
+using Runtime.Agent.Health;
 using Runtime.Agent.Security;
 using Runtime.Agent.Sessions;
 using Runtime.Ai;
@@ -35,6 +36,7 @@ builder.Services
 
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = restOptions.MaxRequestBodyBytes);
 builder.WebHost.UseUrls($"http://localhost:{restOptions.Port}");
+builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(restOptions.ShutdownTimeoutSeconds));
 
 builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
@@ -124,6 +126,7 @@ builder.Services.AddSingleton<IAgentExecutionInterface>(sp => new AgentExecution
     sp.GetRequiredService<ICapabilityCatalog>(),
     sp.GetRequiredService<ISessionStore>()));
 builder.Services.AddSingleton<ISecurityEvaluator, TrustedDefaultSecurityEvaluator>();
+builder.Services.AddSingleton<IRuntimeHealthContributor, AiProviderReachabilityHealthContributor>();
 builder.Services.AddHostedService<RuntimeStartupHostedService>();
 
 var app = builder.Build();
@@ -148,6 +151,8 @@ app.UseExceptionHandler(errorApp =>
         await Results.Problem(detail: detail, statusCode: statusCode).ExecuteAsync(context);
     });
 });
+
+app.UseRequestObservability();
 
 app.UseSwagger();
 app.UseSwaggerUI();
