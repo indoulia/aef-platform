@@ -1,4 +1,4 @@
-namespace Runtime.Orchestration.Resilience;
+namespace Kernel.Resilience;
 
 public enum FailureClassification
 {
