@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Runtime.Agent;
+using Runtime.Agent.Capabilities;
 using Runtime.Agent.Security;
 
 namespace Adapters.Rest.Tests;
@@ -82,15 +83,36 @@ public class ExecutionEndpointTests : IClassFixture<WebApplicationFactory<Progra
         }
     }
 
+    // A direct spy on IAgentExecutionInterface itself, not just on the
+    // security evaluator - proves Runtime.Agent's real execution entry
+    // point is structurally unreachable on the denial path, not merely
+    // that the evaluator ran once (Engineering Review finding).
+    private sealed class SpyAgentExecutionInterface : IAgentExecutionInterface
+    {
+        public int ExecuteCallCount { get; private set; }
+
+        public ExecutionResponse Execute(ExecutionRequest request)
+        {
+            ExecuteCallCount++;
+            throw new InvalidOperationException("Execute should never be called when the security seam denies the request.");
+        }
+
+        public IReadOnlyList<CapabilityDescriptor> DiscoverCapabilities() => Array.Empty<CapabilityDescriptor>();
+
+        public ExecutionSession StartSession(string? projectProfileId) => throw new NotSupportedException();
+    }
+
     [Fact]
     public async Task PostExecution_SecurityDenies_ReturnsForbiddenAndNeverCallsRuntimeAgent()
     {
         var spyEvaluator = new SpyDenyAllSecurityEvaluator();
+        var spyAgent = new SpyAgentExecutionInterface();
         using var factoryWithDenial = _factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
             {
                 services.AddSingleton<ISecurityEvaluator>(spyEvaluator);
+                services.AddSingleton<IAgentExecutionInterface>(spyAgent);
             });
         });
         using var client = factoryWithDenial.CreateClient();
@@ -100,5 +122,6 @@ public class ExecutionEndpointTests : IClassFixture<WebApplicationFactory<Progra
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(1, spyEvaluator.CallCount);
+        Assert.Equal(0, spyAgent.ExecuteCallCount);
     }
 }
