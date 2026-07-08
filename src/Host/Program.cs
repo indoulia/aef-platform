@@ -1,4 +1,6 @@
+using Adapters.Rest;
 using AefPlatform.Host;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -20,7 +22,22 @@ using Runtime.DomainContent.RepositoryValidation;
 using Runtime.Execution;
 using Runtime.Hosts.Skill;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
+
+var restOptions = builder.Configuration.GetSection("RestAdapter").Get<RestAdapterOptions>() ?? new RestAdapterOptions();
+
+builder.Services
+    .AddOptions<RestAdapterOptions>()
+    .Bind(builder.Configuration.GetSection("RestAdapter"))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = restOptions.MaxRequestBodyBytes);
+builder.WebHost.UseUrls($"http://localhost:{restOptions.Port}");
+
+builder.Services.AddProblemDetails();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 builder.Services
     .AddOptions<PlatformHostOptions>()
@@ -108,6 +125,22 @@ builder.Services.AddSingleton<IAgentExecutionInterface>(sp => new AgentExecution
 builder.Services.AddSingleton<ISecurityEvaluator, TrustedDefaultSecurityEvaluator>();
 builder.Services.AddHostedService<RuntimeStartupHostedService>();
 
-var host = builder.Build();
+var app = builder.Build();
 
-await host.RunAsync();
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        await Results.Problem(detail: "An unexpected error occurred.", statusCode: StatusCodes.Status500InternalServerError)
+            .ExecuteAsync(context);
+    });
+});
+
+app.UseSwagger();
+app.UseSwaggerUI();
+
+app.MapGroup(restOptions.BasePath).MapRestAdapterEndpoints();
+
+await app.RunAsync();
+
+public partial class Program { }
