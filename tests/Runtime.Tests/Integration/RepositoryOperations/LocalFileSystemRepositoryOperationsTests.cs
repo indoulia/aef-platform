@@ -103,6 +103,43 @@ public class LocalFileSystemRepositoryOperationsTests
     }
 
     [Fact]
+    public void ReadFile_ViaSymlinkPointingOutsideRoot_ReturnsPathEscapesRoot()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var outside = Directory.CreateTempSubdirectory();
+        try
+        {
+            var secretPath = Path.Combine(outside.FullName, "secret.txt");
+            File.WriteAllText(secretPath, "outside-root-content");
+
+            var linkPath = Path.Combine(root.FullName, "escape-link");
+            try
+            {
+                Directory.CreateSymbolicLink(linkPath, outside.FullName);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                // This environment cannot create symlinks without elevated
+                // privilege/Developer Mode - skip rather than fail the
+                // whole suite on an environment limitation unrelated to
+                // the behavior under test.
+                return;
+            }
+
+            var ops = new LocalFileSystemRepositoryOperations(root.FullName);
+
+            var result = ops.ReadFile("escape-link/secret.txt");
+
+            Assert.Equal(RepositoryFileReadStatus.PathEscapesRoot, result.Status);
+        }
+        finally
+        {
+            root.Delete(true);
+            outside.Delete(true);
+        }
+    }
+
+    [Fact]
     public void CreateDirectory_ThenDeleteDirectory_Succeeds()
     {
         var root = Directory.CreateTempSubdirectory();

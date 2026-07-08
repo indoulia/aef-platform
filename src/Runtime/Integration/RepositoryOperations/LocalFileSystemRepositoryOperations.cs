@@ -176,15 +176,58 @@ public sealed class LocalFileSystemRepositoryOperations : IRepositoryFileOperati
         }
     }
 
+    // Mirrors LocalFileSystemRepositoryScanner's own ResolveWithinRoot
+    // algorithm exactly (Epic 0008, Story S25): walks the combined path one
+    // segment at a time, following any reparse point (symlink or junction)
+    // encountered along the way to its real target before continuing, so a
+    // symlink placed inside _root that points outside it cannot be used to
+    // escape the boundary - a plain textual StartsWith(root) check on the
+    // unresolved path would miss exactly this case. Also resolves a file
+    // symlink at the final segment, which the scanner itself never needed
+    // (it only ever lists directories) but this adapter's file-mutating
+    // operations do.
     private string? Resolve(string relativePath)
     {
         var combined = Path.GetFullPath(Path.Combine(_root, relativePath ?? string.Empty));
+        var current = Path.GetPathRoot(combined) ?? combined;
+        var segments = combined[current.Length..].Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var segment in segments)
+        {
+            if (segment == ".")
+            {
+                continue;
+            }
+
+            current = Path.GetFullPath(Path.Combine(current, segment));
+
+            if (Directory.Exists(current))
+            {
+                var linkTarget = new DirectoryInfo(current).ResolveLinkTarget(returnFinalTarget: true);
+                if (linkTarget is not null)
+                {
+                    current = linkTarget.FullName;
+                }
+            }
+            else if (File.Exists(current))
+            {
+                var linkTarget = new FileInfo(current).ResolveLinkTarget(returnFinalTarget: true);
+                if (linkTarget is not null)
+                {
+                    current = linkTarget.FullName;
+                }
+            }
+        }
+
+        return IsWithinRoot(current) ? current : null;
+    }
+
+    private bool IsWithinRoot(string candidateFullPath)
+    {
         var normalizedRoot = _root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var normalizedCandidate = combined.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedCandidate = candidateFullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        var withinRoot = normalizedCandidate.Equals(normalizedRoot, StringComparison.OrdinalIgnoreCase)
+        return normalizedCandidate.Equals(normalizedRoot, StringComparison.OrdinalIgnoreCase)
             || normalizedCandidate.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-
-        return withinRoot ? combined : null;
     }
 }
