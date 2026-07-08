@@ -2,6 +2,9 @@ using AefPlatform.Host;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Runtime.Agent;
+using Runtime.Agent.Capabilities;
+using Runtime.Agent.Sessions;
 using Runtime.Ai;
 using Runtime.Ai.Prompts;
 using Runtime.Ai.Providers;
@@ -95,6 +98,12 @@ builder.Services.AddSingleton(sp =>
         behaviors);
 });
 builder.Services.AddSingleton(sp => new EngineeringExecutionPipeline(sp.GetRequiredService<RuntimeHandle>()));
+builder.Services.AddSingleton<ICapabilityCatalog, EngineeringAgentCapabilityCatalog>();
+builder.Services.AddSingleton<ISessionStore, InMemorySessionStore>();
+builder.Services.AddSingleton<IAgentExecutionInterface>(sp => new AgentExecutionService(
+    sp.GetRequiredService<EngineeringExecutionPipeline>(),
+    sp.GetRequiredService<ICapabilityCatalog>(),
+    sp.GetRequiredService<ISessionStore>()));
 builder.Services.AddHostedService<RuntimeStartupHostedService>();
 
 var host = builder.Build();
