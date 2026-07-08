@@ -108,7 +108,14 @@ public sealed class EngineeringExecutionPipeline
         };
     }
 
-    private static RepositoryExecutionContext RequireRepositoryContext(EngineeringRequest request)
+    // Returns null (never a fabricated empty context) when the caller
+    // didn't supply RepositoryName/RepositoryRoot, so a genuinely missing
+    // repository payload surfaces as its own clarification-shaped
+    // diagnostic rather than a confusing "repository '' is not readable"
+    // downstream (code review: conflating "no repository was specified"
+    // with "repository exists but isn't readable" produced misleading
+    // diagnostics for a caller who simply forgot the payload keys).
+    private static RepositoryExecutionContext? TryGetRepositoryContext(EngineeringRequest request)
     {
         if (request.Payload is not null
             && request.Payload.TryGetValue("RepositoryName", out var nameObj) && nameObj is string name
@@ -117,12 +124,21 @@ public sealed class EngineeringExecutionPipeline
             return RepositoryContextFactory.Create(name, root);
         }
 
-        return new RepositoryExecutionContext(string.Empty, string.Empty, false, false, null, null, null);
+        return null;
     }
+
+    private static ExecutionResult MissingRepositoryContext(string? workflowId, string agentId) =>
+        new(false, workflowId, agentId, new[] { "No repository context was supplied - Payload must carry RepositoryName and RepositoryRoot." }, null, TimeSpan.Zero,
+            "I need a repository to work with.", "Supply RepositoryName and RepositoryRoot in the request payload and retry.");
 
     private ExecutionResult FromEngineeringPlanning(EngineeringRequest request)
     {
-        var repositoryContext = RequireRepositoryContext(request);
+        var repositoryContext = TryGetRepositoryContext(request);
+        if (repositoryContext is null)
+        {
+            return MissingRepositoryContext("WFL-DEL-0006", "AGT-EXE-0012");
+        }
+
         var goal = request.Payload is not null && request.Payload.TryGetValue("Goal", out var goalObj) && goalObj is string goalText
             ? goalText
             : request.UserRequest;
@@ -148,18 +164,32 @@ public sealed class EngineeringExecutionPipeline
 
         var diagnosticsList = drafting.OpenItems.Concat(drafting.AlignmentFindings).ToList();
         return new ExecutionResult(true, "WFL-DEL-0006", "AGT-EXE-0012", diagnosticsList, new[] { readiness.ImplementationReadiness }, TimeSpan.Zero, readiness.ApprovalSummary, "Awaiting Business Approval.",
-            RepositoryAnalyzed: repositoryContext.RepositoryName);
+            RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths);
     }
 
     private ExecutionResult FromRepositoryIntelligence(EngineeringRequest request)
     {
-        var repositoryContext = RequireRepositoryContext(request);
+        var repositoryContext = TryGetRepositoryContext(request);
+        if (repositoryContext is null)
+        {
+            return MissingRepositoryContext("WFL-DEL-0008", "AGT-EXE-0015");
+        }
+
         var requestScope = request.Payload is not null && request.Payload.TryGetValue("RequestScope", out var scopeObj) && scopeObj is string scopeText
             ? scopeText
             : request.UserRequest;
 
         var understanding = InvokeSkill<RepositoryUnderstandingResult>("SKL-EXE-0030", "RepositoryUnderstandingRequest", new RepositoryUnderstandingRequest(requestScope, repositoryContext), request.ProjectProfileId, "RepoIntel-Understanding");
+        if (understanding is null)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0008", "AGT-EXE-0015", new[] { "SKL-EXE-0030 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
         var codeIntelligence = InvokeSkill<CodeIntelligenceResult>("SKL-EXE-0031", "CodeIntelligenceRequest", new CodeIntelligenceRequest(requestScope, repositoryContext), request.ProjectProfileId, "RepoIntel-CodeIntelligence");
+        if (codeIntelligence is null)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0008", "AGT-EXE-0015", new[] { "SKL-EXE-0031 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
 
         DiagnosticsResult? diagnostics = null;
         if (request.Payload is not null && request.Payload.TryGetValue("ReportedProblem", out var problemObj) && problemObj is string problem)
@@ -179,15 +209,21 @@ public sealed class EngineeringExecutionPipeline
         }
 
         var diagnosticsSummary = synthesis.ReportInstance.Findings.Select(f => $"[{f.Class}] {f.Area}: {f.Summary}").ToList();
-        var nextStep = synthesis.RequiresHumanApproval ? "Awaiting Human Approval on Root Cause/Architecture/Risk findings." : "No further action needed.";
+        var nextStep = synthesis.ReviewInstance?.Summary
+            ?? (synthesis.RequiresHumanApproval ? "Awaiting Human Approval on Root Cause/Architecture/Risk findings." : "No further action needed.");
 
-        return new ExecutionResult(true, "WFL-DEL-0008", "AGT-EXE-0015", diagnosticsSummary, new[] { understanding?.Answer ?? "n/a" }, TimeSpan.Zero, synthesis.ReportInstance.ReportType, nextStep,
-            RepositoryAnalyzed: repositoryContext.RepositoryName);
+        return new ExecutionResult(true, "WFL-DEL-0008", "AGT-EXE-0015", diagnosticsSummary, new[] { understanding.Answer }, TimeSpan.Zero, synthesis.ReportInstance.ReportType, nextStep,
+            RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths);
     }
 
     private ExecutionResult FromRepositoryValidation(EngineeringRequest request)
     {
-        var repositoryContext = RequireRepositoryContext(request);
+        var repositoryContext = TryGetRepositoryContext(request);
+        if (repositoryContext is null)
+        {
+            return MissingRepositoryContext(null, "AGT-EXE-0010");
+        }
+
         var outcome = InvokeSkill<ValidationOutcome>("REPO-VALIDATION", "RepositoryContext", repositoryContext, request.ProjectProfileId, "RepositoryValidation");
 
         if (outcome is null)
@@ -198,7 +234,7 @@ public sealed class EngineeringExecutionPipeline
         if (outcome.IsEscalated)
         {
             return new ExecutionResult(false, null, "AGT-EXE-0010", new[] { outcome.EscalationReason! }, null, TimeSpan.Zero, null, null,
-                RepositoryAnalyzed: repositoryContext.RepositoryName, TestsExecuted: false);
+                RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths, TestsExecuted: false);
         }
 
         // IsEscalated only means "no verification procedure could be
@@ -211,7 +247,7 @@ public sealed class EngineeringExecutionPipeline
             : new[] { $"Validation command exited with code {outcome.LogEntry.ExitCode}: {outcome.LogEntry.StandardErrorExcerpt}" };
 
         return new ExecutionResult(passed, null, "AGT-EXE-0010", diagnostics, null, TimeSpan.Zero, null, null,
-            RepositoryAnalyzed: repositoryContext.RepositoryName, TestsExecuted: true);
+            RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths, TestsExecuted: true);
     }
 
     private T? InvokeSkill<T>(string skillId, string contentKey, object payload, string projectProfileId, string tierLabel) where T : class

@@ -248,6 +248,55 @@ public class EngineeringExecutionPipelineTests
         }
     }
 
+    [Fact]
+    public void Execute_ValidateRequest_NoRepositoryPayloadSupplied_ReturnsClarificationDiagnostic_NeverAFabricatedEmptyRepo()
+    {
+        var validationBehaviors = new Dictionary<string, IBehavior>
+        {
+            ["REPO-VALIDATION"] = new RepositoryValidationSkillBehavior(new StubVerificationRunner(new VerificationRunResult(0, string.Empty, string.Empty))),
+        };
+        var runtime = BootWithBehaviors(ConversationBehaviors(validationBehaviors));
+        runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0021", "Execution"));
+        runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0022", "Execution"));
+        runtime.Kernel.Registry.Register(new DefinitionSubmission("REPO-VALIDATION", "Execution"));
+        var pipeline = new EngineeringExecutionPipeline(runtime);
+
+        var result = pipeline.Execute(new EngineeringRequest("Validate the build", "default-profile"));
+
+        Assert.False(result.Success);
+        Assert.Null(result.RepositoryAnalyzed);
+        Assert.Contains(result.Diagnostics, d => d.Contains("No repository context was supplied"));
+    }
+
+    [Fact]
+    public void Execute_ValidateRequest_DirtyWorkingTree_ReportsFilesChanged()
+    {
+        var root = InitDotnetGitRepository();
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "new-file.txt"), "content");
+            var validationBehaviors = new Dictionary<string, IBehavior>
+            {
+                ["REPO-VALIDATION"] = new RepositoryValidationSkillBehavior(new StubVerificationRunner(new VerificationRunResult(0, "passed", string.Empty))),
+            };
+            var runtime = BootWithBehaviors(ConversationBehaviors(validationBehaviors));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0021", "Execution"));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0022", "Execution"));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("REPO-VALIDATION", "Execution"));
+            var pipeline = new EngineeringExecutionPipeline(runtime);
+            var payload = new Dictionary<string, object> { ["RepositoryName"] = "test-repo", ["RepositoryRoot"] = root };
+
+            var result = pipeline.Execute(new EngineeringRequest("Validate the build", "default-profile", payload));
+
+            Assert.NotNull(result.FilesChanged);
+            Assert.Contains("new-file.txt", result.FilesChanged!);
+        }
+        finally
+        {
+            DeleteRepository(root);
+        }
+    }
+
     private static string InitDotnetGitRepository()
     {
         var root = Directory.CreateTempSubdirectory().FullName;

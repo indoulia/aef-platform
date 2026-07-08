@@ -34,6 +34,32 @@ public class RepositoryContextFactoryTests
     }
 
     [Fact]
+    public void Create_DirtyWorkingTree_PopulatesChangedPathsFromGitStatus()
+    {
+        var root = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            RunGit(root, "init", "-b", "main");
+            RunGit(root, "config", "user.email", "test@example.com");
+            RunGit(root, "config", "user.name", "Test User");
+            File.WriteAllText(Path.Combine(root, "app.csproj"), "<Project />");
+            RunGit(root, "add", "-A");
+            RunGit(root, "commit", "-m", "initial");
+            File.WriteAllText(Path.Combine(root, "new-file.txt"), "content");
+
+            var context = RepositoryContextFactory.Create("test-repo", root);
+
+            Assert.False(context.IsWorkingTreeClean);
+            Assert.NotNull(context.ChangedPaths);
+            Assert.Contains("new-file.txt", context.ChangedPaths!);
+        }
+        finally
+        {
+            DeleteRepository(root);
+        }
+    }
+
+    [Fact]
     public void Create_NonExistentRoot_ReportsUnreadableWithNoTechnologyProfile()
     {
         var context = RepositoryContextFactory.Create("missing-repo", Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()));

@@ -27,13 +27,18 @@ public static class RepositoryContextFactory
 
         string? currentBranch = null;
         bool? isWorkingTreeClean = null;
+        IReadOnlyList<string>? changedPaths = null;
         if (isGitRepository)
         {
+            // One GetStatus() call answers branch, cleanliness, and the
+            // changed-paths list together - deliberately not a second,
+            // separate git invocation for ChangedPaths.
             var status = gitOperations.GetStatus();
             currentBranch = status.CurrentBranch;
             isWorkingTreeClean = status.IsClean;
+            changedPaths = status.ModifiedPaths.Concat(status.UntrackedPaths).ToList();
         }
 
-        return new RepositoryExecutionContext(repositoryRoot, repositoryName, isReadable, isGitRepository, currentBranch, isWorkingTreeClean, technologyProfile);
+        return new RepositoryExecutionContext(repositoryRoot, repositoryName, isReadable, isGitRepository, currentBranch, isWorkingTreeClean, technologyProfile, changedPaths);
     }
 }
