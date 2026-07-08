@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Kernel\Kernel.csproj" />
+    <ProjectReference Include="..\Runtime.Ai\Runtime.Ai.csproj" />
   </ItemGroup>
 
 </Project>
