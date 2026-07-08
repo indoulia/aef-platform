@@ -1,4 +1,7 @@
+using Adapters.Rest;
 using AefPlatform.Host;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -20,7 +23,22 @@ using Runtime.DomainContent.RepositoryValidation;
 using Runtime.Execution;
 using Runtime.Hosts.Skill;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
+
+var restOptions = builder.Configuration.GetSection("RestAdapter").Get<RestAdapterOptions>() ?? new RestAdapterOptions();
+
+builder.Services
+    .AddOptions<RestAdapterOptions>()
+    .Bind(builder.Configuration.GetSection("RestAdapter"))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = restOptions.MaxRequestBodyBytes);
+builder.WebHost.UseUrls($"http://localhost:{restOptions.Port}");
+
+builder.Services.AddProblemDetails();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 builder.Services
     .AddOptions<PlatformHostOptions>()
@@ -108,6 +126,34 @@ builder.Services.AddSingleton<IAgentExecutionInterface>(sp => new AgentExecution
 builder.Services.AddSingleton<ISecurityEvaluator, TrustedDefaultSecurityEvaluator>();
 builder.Services.AddHostedService<RuntimeStartupHostedService>();
 
-var host = builder.Build();
+var app = builder.Build();
 
-await host.RunAsync();
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        // BadHttpRequestException (e.g. malformed JSON on a [FromBody]
+        // parameter) already carries the correct 4xx status - only an
+        // exception with no such classification is a genuine, unexpected
+        // 500. Never surfaces the exception's own message either way, per
+        // "do not expose internal exceptions" (design Decision 9).
+        var exception = context.Features.Get<IExceptionHandlerPathFeature>()?.Error;
+        var statusCode = exception is BadHttpRequestException badHttpRequestException
+            ? badHttpRequestException.StatusCode
+            : StatusCodes.Status500InternalServerError;
+        var detail = statusCode == StatusCodes.Status500InternalServerError
+            ? "An unexpected error occurred."
+            : "The request could not be processed.";
+
+        await Results.Problem(detail: detail, statusCode: statusCode).ExecuteAsync(context);
+    });
+});
+
+app.UseSwagger();
+app.UseSwaggerUI();
+
+app.MapGroup(restOptions.BasePath).MapRestAdapterEndpoints();
+
+await app.RunAsync();
+
+public partial class Program { }
