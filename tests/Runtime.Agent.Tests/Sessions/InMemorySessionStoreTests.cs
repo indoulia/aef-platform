@@ -61,4 +61,17 @@ public class InMemorySessionStoreTests
 
         Assert.Throws<KeyNotFoundException>(() => store.Touch("does-not-exist", null, null));
     }
+
+    [Fact]
+    public void Touch_ConcurrentCallsOnSameSession_NoLostUpdates()
+    {
+        var store = new InMemorySessionStore();
+        var created = store.Create("default-profile");
+        const int callCount = 200;
+
+        Parallel.For(0, callCount, _ => store.Touch(created.SessionId, "default-profile", null));
+
+        var final = store.Get(created.SessionId);
+        Assert.Equal(callCount, final!.TurnCount);
+    }
 }

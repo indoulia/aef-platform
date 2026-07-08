@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Runtime.Agent;
 using Runtime.Agent.Capabilities;
+using Runtime.Agent.Security;
 using Runtime.Agent.Sessions;
 using Runtime.Ai;
 using Runtime.Ai.Prompts;
@@ -104,6 +105,7 @@ builder.Services.AddSingleton<IAgentExecutionInterface>(sp => new AgentExecution
     sp.GetRequiredService<EngineeringExecutionPipeline>(),
     sp.GetRequiredService<ICapabilityCatalog>(),
     sp.GetRequiredService<ISessionStore>()));
+builder.Services.AddSingleton<ISecurityEvaluator, TrustedDefaultSecurityEvaluator>();
 builder.Services.AddHostedService<RuntimeStartupHostedService>();
 
 var host = builder.Build();
