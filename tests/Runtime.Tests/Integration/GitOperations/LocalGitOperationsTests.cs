@@ -128,6 +128,28 @@ public class LocalGitOperationsTests
     }
 
     [Fact]
+    public void CheckMergeReadiness_UnrelatedBranchIsCurrentlyCheckedOutAndDirty_DoesNotBlameTheNamedBranch()
+    {
+        var root = InitRepository();
+        try
+        {
+            var ops = new LocalGitOperations(root);
+            ops.CreateBranch("feature/x"); // created from main, never checked out - has no independent working-tree state
+
+            RunGit(root, "checkout", "-b", "other");
+            File.WriteAllText(Path.Combine(root, "unrelated.txt"), "dirty");
+
+            var result = ops.CheckMergeReadiness("feature/x", "main");
+
+            Assert.True(result.IsReady, string.Join("; ", result.Reasons));
+        }
+        finally
+        {
+            DeleteRepository(root);
+        }
+    }
+
+    [Fact]
     public void CheckMergeReadiness_CleanFeatureBranch_IsReady()
     {
         var root = InitRepository();

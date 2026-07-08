@@ -33,7 +33,7 @@ public sealed class RepositoryValidationSkillBehavior : IBehavior
 
         if (command is null)
         {
-            return ValidationOutcome.Escalated($"No known default build/test command for repository '{repositoryContext.RepositoryName}''s detected stack - halting rather than guessing one.");
+            return ValidationOutcome.Escalated($"No known default build/test command for repository '{repositoryContext.RepositoryName}'s detected stack - halting rather than guessing one.");
         }
 
         var request = new ValidationRequest(repositoryContext.RepositoryName, repositoryContext.RepositoryRoot, command.Value.Command, command.Value.Arguments);
