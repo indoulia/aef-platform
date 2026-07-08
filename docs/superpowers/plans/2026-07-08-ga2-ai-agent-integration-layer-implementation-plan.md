@@ -355,6 +355,11 @@ namespace Runtime.Agent.Tests;
 // Runtime.Agent must never acquire a reference to Kernel or Runtime.Ai. A
 // failure here means a future change gave Runtime.Agent a project
 // reference this architecture forbids - caught here, not at review time.
+// A "references Runtime" positive-control assertion is added in Task 6
+// (AgentExecutionServiceTests), once code in this assembly actually
+// consumes a Runtime.Execution type - the compiler only emits an
+// AssemblyRef for a ProjectReference that is genuinely used, so no such
+// assertion can hold truthfully yet with only ExecutionStatus present.
 public class ArchitectureBoundaryTests
 {
     private static IReadOnlyList<string?> RuntimeAgentReferencedAssemblyNames() =>
@@ -371,19 +376,13 @@ public class ArchitectureBoundaryTests
     {
         Assert.DoesNotContain("Runtime.Ai", RuntimeAgentReferencedAssemblyNames());
     }
-
-    [Fact]
-    public void RuntimeAgentAssembly_ReferencesRuntime()
-    {
-        Assert.Contains("Runtime", RuntimeAgentReferencedAssemblyNames());
-    }
 }
 ```
 
 - [ ] **Step 6: Run the tests, confirm they pass**
 
 Run: `dotnet test tests/Runtime.Agent.Tests/Runtime.Agent.Tests.csproj`
-Expected: 3 pass (this is a scaffolding task — the project and `ExecutionStatus` exist by Step 3, so there is no red/green cycle beyond "does the assembly reference graph already satisfy ADR-0025," which it does since the `.csproj` only references `Runtime`).
+Expected: 2 pass (this is a scaffolding task — the project and `ExecutionStatus` exist by Step 3, so there is no red/green cycle beyond "does the assembly reference graph already satisfy ADR-0025's negative constraints," which it does since the `.csproj` only references `Runtime`).
 
 - [ ] **Step 7: Commit**
 
@@ -1058,6 +1057,20 @@ public class AgentExecutionServiceTests
         Assert.Equal(8, service.DiscoverCapabilities().Count);
     }
 
+    [Fact]
+    public void RuntimeAgentAssembly_NowReferencesRuntime()
+    {
+        // The positive-control half of Task 2's ArchitectureBoundaryTests:
+        // once AgentExecutionService genuinely consumes
+        // EngineeringExecutionPipeline (Runtime.Execution), the compiler
+        // emits a real AssemblyRef to Runtime - this could not be asserted
+        // truthfully back when the assembly held only ExecutionStatus.
+        var referencedAssemblyNames = typeof(AgentExecutionService).Assembly
+            .GetReferencedAssemblies().Select(a => a.Name).ToList();
+
+        Assert.Contains("Runtime", referencedAssemblyNames);
+    }
+
     private sealed class AllowAllPolicyResolver : IPolicyResolver
     {
         public PolicyResolution Resolve(ActivationRequest request) => PolicyResolution.Authorize();
@@ -1225,12 +1238,12 @@ public sealed class AgentExecutionService : IAgentExecutionInterface
 - [ ] **Step 5: Run the tests to confirm they pass**
 
 Run: `dotnet test tests/Runtime.Agent.Tests/Runtime.Agent.Tests.csproj --filter "FullyQualifiedName~AgentExecutionServiceTests"`
-Expected: 7 pass.
+Expected: 8 pass.
 
 - [ ] **Step 6: Run the full `Runtime.Agent.Tests` project**
 
 Run: `dotnet test tests/Runtime.Agent.Tests/Runtime.Agent.Tests.csproj`
-Expected: all pass (Tasks 2-6 combined: 3 + 4 + 2 + 5 + 7 = 21 tests).
+Expected: all pass (Tasks 2-6 combined: 2 + 4 + 2 + 5 + 8 = 21 tests).
 
 - [ ] **Step 7: Commit**
 
@@ -1552,7 +1565,7 @@ Record the total pass count as `N` (the last-known baseline was 324 at RC0, befo
 - [ ] **Step 2: Run the full solution test suite on the feature branch**
 
 Run: `dotnet build AefPlatform.sln` then `dotnet test AefPlatform.sln`
-Expected: 0 build warnings, 0 test failures, total pass count = `N` (baseline) + 28 (this plan's new tests: 4 in Task 1 (`ExecutionResultKindTests` x2 + 2 new `EngineeringExecutionPipelineTests` facts) + 3 in Task 2 + 4 in Task 3 + 2 in Task 4 + 5 in Task 5 + 7 in Task 6 + 3 in Task 7 (Host.Tests) — Task 8 adds no tests).
+Expected: 0 build warnings, 0 test failures, total pass count = `N` (baseline) + 28 (this plan's new tests: 4 in Task 1 (`ExecutionResultKindTests` x2 + 2 new `EngineeringExecutionPipelineTests` facts) + 2 in Task 2 + 4 in Task 3 + 2 in Task 4 + 5 in Task 5 + 8 in Task 6 + 3 in Task 7 (Host.Tests) — Task 8 adds no tests).
 
 - [ ] **Step 3: Confirm no pre-existing test regressed**
 
@@ -1618,6 +1631,6 @@ GA-2 adds one new class library (`Runtime.Agent`, referencing `Runtime` only), o
 ## Test Plan
 
 - Task 1: `ExecutionResultKindTests` (2) + 2 new facts in `EngineeringExecutionPipelineTests` = 4 new `Runtime.Tests`.
-- Tasks 2-6: `ArchitectureBoundaryTests` (3) + `ExecutionContractsTests` (4) + `EngineeringAgentCapabilityCatalogTests` (2) + `InMemorySessionStoreTests` (5) + `AgentExecutionServiceTests` (7) = 21 new `Runtime.Agent.Tests`.
+- Tasks 2-6: `ArchitectureBoundaryTests` (2) + `ExecutionContractsTests` (4) + `EngineeringAgentCapabilityCatalogTests` (2) + `InMemorySessionStoreTests` (5) + `AgentExecutionServiceTests` (8) = 21 new `Runtime.Agent.Tests`.
 - Task 7: `GA2AgentExecutionHostTests` (3) new `Host.Tests`.
 - Task 9: full-solution gate, baseline + 28, 0 regressions.
