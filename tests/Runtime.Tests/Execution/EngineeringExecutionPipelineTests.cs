@@ -158,6 +158,46 @@ public class EngineeringExecutionPipelineTests
     }
 
     [Fact]
+    public void Execute_AnalyzeRequest_WithReportedProblem_SurfacesDiagnosticsConfidenceInResult()
+    {
+        var root = InitDotnetGitRepository();
+        try
+        {
+            var repoIntelBehaviors = new Dictionary<string, IBehavior>
+            {
+                ["SKL-EXE-0030"] = new RepositoryAndArchitectureUnderstandingBehavior(),
+                ["SKL-EXE-0031"] = new CodeIntelligenceAndQualitySignalDetectionBehavior(),
+                ["SKL-EXE-0032"] = new EngineeringDiagnosticsAndRootCauseAnalysisBehavior(),
+                ["SKL-EXE-0033"] = new RecommendationSynthesisAndEvidenceBasedReportingBehavior(),
+            };
+            var runtime = BootWithBehaviors(ConversationBehaviors(repoIntelBehaviors));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0021", "Execution"));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0022", "Execution"));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0030", "Execution"));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0031", "Execution"));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0032", "Execution"));
+            runtime.Kernel.Registry.Register(new DefinitionSubmission("SKL-EXE-0033", "Execution"));
+            var pipeline = new EngineeringExecutionPipeline(runtime);
+            var payload = new Dictionary<string, object>
+            {
+                ["RepositoryName"] = "test-repo",
+                ["RepositoryRoot"] = root,
+                ["ReportedProblem"] = "Startup throws NullReferenceException",
+                ["EvidenceSources"] = (IReadOnlyList<string>)new[] { "log excerpt A" },
+            };
+
+            var result = pipeline.Execute(new EngineeringRequest("Please analyze the repository", "default-profile", payload));
+
+            Assert.True(result.Success);
+            Assert.Contains(result.Diagnostics, d => d.Contains("confidence", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            DeleteRepository(root);
+        }
+    }
+
+    [Fact]
     public void Execute_PlanRequest_DispatchesToEngineeringPlanning()
     {
         var root = InitDotnetGitRepository();

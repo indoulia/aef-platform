@@ -209,6 +209,18 @@ public sealed class EngineeringExecutionPipeline
         }
 
         var diagnosticsSummary = synthesis.ReportInstance.Findings.Select(f => $"[{f.Class}] {f.Area}: {f.Summary}").ToList();
+        if (diagnostics is not null)
+        {
+            // SKL-EXE-0032's own evidence chain/confidence/hypotheses were
+            // previously computed but never surfaced anywhere in the
+            // ExecutionResult - RecommendationSynthesisResult only folds
+            // Understanding/CodeIntelligence findings into ReportInstance,
+            // so a diagnostic request's own root-cause detail was silently
+            // dropped (code review finding).
+            diagnosticsSummary.Add($"Root cause confidence: {diagnostics.ConfidenceScore}/10 - {diagnostics.ConfidenceJustification}");
+            diagnosticsSummary.AddRange(diagnostics.AlternativeHypotheses.Select(h => $"Alternative hypothesis: {h.Hypothesis} (evidence: {h.SupportingEvidence})"));
+        }
+
         var nextStep = synthesis.ReviewInstance?.Summary
             ?? (synthesis.RequiresHumanApproval ? "Awaiting Human Approval on Root Cause/Architecture/Risk findings." : "No further action needed.");
 
