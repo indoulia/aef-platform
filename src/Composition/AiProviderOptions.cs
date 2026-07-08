@@ -1,6 +1,13 @@
 // Physically lives in src/Composition/AefPlatform.Composition.csproj -
 // namespace unchanged from its prior home in src/Host, see Capability 3's
 // design Decision 1.
+//
+// Bound the same way PlatformHostOptions already is
+// (.Bind().ValidateDataAnnotations().ValidateOnStart()) - Provider
+// selects which of OpenAi/AzureOpenAi is actually constructed; the
+// other section may be absent. Real API keys are never checked into
+// appsettings.json - see the "Ai" section there for the placeholder
+// values and the deploy-time environment-variable override convention.
 using System.ComponentModel.DataAnnotations;
 
 namespace AefPlatform.Host;
