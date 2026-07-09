@@ -53,6 +53,10 @@ public sealed class EngineeringAgentCapabilityCatalog : ICapabilityCatalog
             "WFL-DEL-0011", "Repository Maintenance Planning",
             "Assesses a repository's dependency, SDK, package, configuration, structure, build, documentation, and code hygiene health, and assembles a Business-Approved Maintenance Specification decomposed into ordinary Stories. Plans, never executes, changes.",
             new[] { "RepositoryName", "RepositoryRoot" }, "Synchronous"),
+        new CapabilityDescriptor(
+            "WFL-DEL-0012", "Platform Lifecycle Management",
+            "Classifies an Installation/Upgrade/Repair/Reset/Backup/Restore request against AEF's own installation and assembles a Human-Approved Platform Lifecycle Operation Plan. Plans, never executes, the actual operation.",
+            new[] { "RepositoryName", "RepositoryRoot" }, "Synchronous"),
     };
 
     public IReadOnlyList<CapabilityDescriptor> Discover() => Capabilities;

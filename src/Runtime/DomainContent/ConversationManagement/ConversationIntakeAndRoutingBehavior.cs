@@ -15,9 +15,17 @@ namespace Runtime.DomainContent.ConversationManagement;
 // WFL-DEL-0004, the Delivery Execution skill trio, WFL-DEL-0006,
 // WFL-DEL-0008, the repository validation path, WFL-DEL-0007 Specification
 // Review, WFL-DEL-0005 Implementation Validation, WFL-DEL-0009 Repository
-// Migration Planning, and WFL-DEL-0011 Repository Maintenance Planning) -
-// it never routes to a capability with no executable realization, and asks
-// for clarification rather than guess.
+// Migration Planning, WFL-DEL-0011 Repository Maintenance Planning, and
+// WFL-DEL-0012 Platform Lifecycle Management) - it never routes to a
+// capability with no executable realization, and asks for clarification
+// rather than guess. Only "upgrade" is kept AEF-qualified ("upgrade aef",
+// never bare "upgrade") - Migration's and Maintenance's own worked
+// examples ("upgrade this repository," "upgrade the .NET SDK") would
+// otherwise collide with Platform Lifecycle's self-referential Upgrade.
+// The other five verbs (install/repair/reset/backup/restore) claim no
+// keyword anywhere else in this table today, so they route bare, matching
+// the design's own worked examples verbatim ("Reset generated artifacts,"
+// "Rollback an upgrade" - neither says "AEF").
 public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
 {
     private static readonly (string Keyword, string CapabilityId)[] KnownCapabilities =
@@ -40,6 +48,15 @@ public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
         ("maintenance", "WFL-DEL-0011"),
         ("maintain", "WFL-DEL-0011"),
         ("hygiene", "WFL-DEL-0011"),
+        ("install", "WFL-DEL-0012"),
+        ("upgrade aef", "WFL-DEL-0012"),
+        ("upgrade my aef", "WFL-DEL-0012"),
+        ("repair", "WFL-DEL-0012"),
+        ("reset", "WFL-DEL-0012"),
+        ("backup", "WFL-DEL-0012"),
+        ("restore", "WFL-DEL-0012"),
+        ("rollback", "WFL-DEL-0012"),
+        ("platform lifecycle", "WFL-DEL-0012"),
     };
 
     public object? Execute(RuntimeExecutionContext context)
@@ -60,7 +77,7 @@ public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
 
         return RoutingResult.NeedsClarification(new[]
         {
-            "Which capability should handle this request? Supported: feature, epic, delivery, analyze, plan, validate, review specification, merge readiness, migration, maintenance."
+            "Which capability should handle this request? Supported: feature, epic, delivery, analyze, plan, validate, review specification, merge readiness, migration, maintenance, platform lifecycle (install/upgrade/repair/backup/restore/reset AEF)."
         });
     }
 }

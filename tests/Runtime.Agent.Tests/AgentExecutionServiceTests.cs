@@ -129,7 +129,7 @@ public class AgentExecutionServiceTests
         var runtime = BootWithBehaviors(ConversationBehaviors());
         var service = NewService(runtime);
 
-        Assert.Equal(10, service.DiscoverCapabilities().Count);
+        Assert.Equal(11, service.DiscoverCapabilities().Count);
     }
 
     [Fact]
