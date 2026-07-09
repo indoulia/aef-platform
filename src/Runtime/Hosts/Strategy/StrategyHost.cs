@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Kernel.Evidence;
 using Kernel.Governance;
 using Kernel.Supervision;
@@ -13,7 +14,12 @@ public sealed class StrategyHost
     private readonly IExecutionContextManager _contextManager;
     private readonly IAgentAllocator? _agentAllocator;
     private readonly IEvidenceSink _evidenceSink;
-    private readonly Dictionary<string, StrategyInstanceHandle> _instances = new();
+
+    // Same real, demonstrated race as ExecutionContextManager's own fix
+    // (GA-3 Capability 5's concurrent-HTTP-request test) - StrategyHost is
+    // a singleton within RuntimeHandle, so concurrent REST requests can
+    // call Activate/TransitionSession on the same instance concurrently.
+    private readonly ConcurrentDictionary<string, StrategyInstanceHandle> _instances = new();
 
     public StrategyHost(
         IInstanceSupervisor supervisor,
@@ -70,7 +76,7 @@ public sealed class StrategyHost
             case SessionState.Terminated:
                 _supervisor.DestroyInstance(instanceId);
                 _contextManager.OnInstanceCompletedOrTerminated(instanceId);
-                _instances.Remove(instanceId);
+                _instances.TryRemove(instanceId, out _);
                 break;
         }
 

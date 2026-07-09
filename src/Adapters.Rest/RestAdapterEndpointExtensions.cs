@@ -43,7 +43,7 @@ public static class RestAdapterEndpointExtensions
             return Results.Problem(detail: decision.DenialReason ?? "Access denied.", statusCode: StatusCodes.Status403Forbidden);
         }
 
-        var executionRequest = new ExecutionRequest(Guid.NewGuid().ToString("N"), request.SessionId, request.UserRequest, request.ProjectProfileId, request.Payload);
+        var executionRequest = new ExecutionRequest(Guid.NewGuid().ToString("N"), request.SessionId, request.UserRequest, request.ProjectProfileId, PayloadNormalization.Normalize(request.Payload));
         var response = agent.Execute(executionRequest);
 
         if (response.Status == ExecutionStatus.Failed && response.Error?.Reason == UnknownSessionReason)

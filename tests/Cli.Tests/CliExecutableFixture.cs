@@ -32,12 +32,24 @@ public static class CliExecutableFixture
 
     public static (int ExitCode, string StandardOutput, string StandardError) Run(params string[] args)
     {
-        var startInfo = new ProcessStartInfo("dotnet", string.Join(' ', new[] { $"\"{LocateCliExecutablePath()}\"" }.Concat(args.Select(a => $"\"{a}\""))))
+        var startInfo = new ProcessStartInfo("dotnet")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+
+        // ArgumentList (not a hand-built Arguments string) lets .NET apply
+        // the platform's own correct argument-escaping - a manually
+        // quoted "\"{a}\"" string breaks the moment any argument (e.g. a
+        // JSON payload) itself contains a double quote, corrupting the
+        // whole command line (execution-discovered while adding a
+        // --payload-json regression test, GA-3 Capability 5).
+        startInfo.ArgumentList.Add(LocateCliExecutablePath());
+        foreach (var arg in args)
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
 
         using var process = Process.Start(startInfo)!;
         var stdout = process.StandardOutput.ReadToEnd();

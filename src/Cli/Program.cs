@@ -219,9 +219,10 @@ static int RunExecute(Dictionary<string, string?> flags, IServiceProvider provid
         return CliExitCodeMapper.SecurityDenied;
     }
 
-    IReadOnlyDictionary<string, object>? payload = cliArguments.PayloadJson is null
+    IReadOnlyDictionary<string, object>? rawPayload = cliArguments.PayloadJson is null
         ? null
         : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(cliArguments.PayloadJson);
+    var payload = PayloadNormalization.Normalize(rawPayload);
 
     var agent = provider.GetRequiredService<IAgentExecutionInterface>();
     var request = new ExecutionRequest(Guid.NewGuid().ToString("N"), cliArguments.SessionId, cliArguments.UserRequest, cliArguments.ProjectProfileId, payload);

@@ -24,7 +24,17 @@ using Runtime.DomainContent.RepositoryValidation;
 using Runtime.Execution;
 using Runtime.Hosts.Skill;
 
-var builder = WebApplication.CreateBuilder(args);
+// ContentRootPath is pinned to AppContext.BaseDirectory (the directory the
+// built AefPlatform.Host.dll actually lives in) rather than left at
+// WebApplication.CreateBuilder's own default (Directory.GetCurrentDirectory())
+// - identical root cause and fix to Cli's own Program.cs (Capability 3):
+// without this, appsettings.json's "Ai:OpenAi" section silently fails to
+// bind whenever this process is launched from anywhere other than its own
+// output directory, crashing with a NullReferenceException at first AI
+// provider use (execution-discovered via live performance measurement,
+// GA-3 Capability 5 - never caught by WebApplicationFactory-based tests,
+// which resolve their content root differently).
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = args, ContentRootPath = AppContext.BaseDirectory });
 
 var restOptions = builder.Configuration.GetSection("RestAdapter").Get<RestAdapterOptions>() ?? new RestAdapterOptions();
 

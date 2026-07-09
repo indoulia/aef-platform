@@ -73,6 +73,25 @@ public class ExecutionContextManagerUnitTests
         Assert.NotNull(manager.GetContext("instance-1"));
     }
 
+    [Fact]
+    public void CreateContext_ConcurrentCalls_NoCorruption()
+    {
+        // GA-3 Capability 5's real-concurrent-HTTP-request test found this
+        // class's underlying Dictionary corrupted under concurrent REST
+        // requests - fixed via ConcurrentDictionary. Regression test:
+        // many threads creating distinct contexts concurrently must not
+        // throw and every context must remain retrievable afterward.
+        var manager = new ExecutionContextManager();
+        const int count = 200;
+
+        Parallel.For(0, count, i => manager.CreateContext($"instance-{i}", MinimalSeed()));
+
+        for (var i = 0; i < count; i++)
+        {
+            Assert.NotNull(manager.GetContext($"instance-{i}"));
+        }
+    }
+
     private static ContextSeed MinimalSeed() =>
         new(new Tier0Context(Array.Empty<string>(), Array.Empty<string>()), "profile-1", CurrentStepId: null, Tier3SkillContent: null);
 
