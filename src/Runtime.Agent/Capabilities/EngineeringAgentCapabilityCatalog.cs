@@ -49,6 +49,10 @@ public sealed class EngineeringAgentCapabilityCatalog : ICapabilityCatalog
             "WFL-DEL-0009", "Repository Migration Planning",
             "Classifies a migration/modernization request, drafts a phased strategy and rollback plan, and assembles a Business-Approved Migration Specification. Plans, never executes, transformations.",
             new[] { "RepositoryName", "RepositoryRoot" }, "Synchronous"),
+        new CapabilityDescriptor(
+            "WFL-DEL-0011", "Repository Maintenance Planning",
+            "Assesses a repository's dependency, SDK, package, configuration, structure, build, documentation, and code hygiene health, and assembles a Business-Approved Maintenance Specification decomposed into ordinary Stories. Plans, never executes, changes.",
+            new[] { "RepositoryName", "RepositoryRoot" }, "Synchronous"),
     };
 
     public IReadOnlyList<CapabilityDescriptor> Discover() => Capabilities;
