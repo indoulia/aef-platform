@@ -12,7 +12,7 @@ public class CapabilitiesEndpointTests : IClassFixture<WebApplicationFactory<Pro
     public CapabilitiesEndpointTests(WebApplicationFactory<Program> factory) => _factory = factory;
 
     [Fact]
-    public async Task GetCapabilities_ReturnsTheHandAuthoredNineCapabilities()
+    public async Task GetCapabilities_ReturnsTheHandAuthoredTenCapabilities()
     {
         using var client = _factory.CreateClient();
 
@@ -21,6 +21,6 @@ public class CapabilitiesEndpointTests : IClassFixture<WebApplicationFactory<Pro
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<List<CapabilityDescriptor>>();
         Assert.NotNull(body);
-        Assert.Equal(9, body!.Count);
+        Assert.Equal(10, body!.Count);
     }
 }

@@ -150,7 +150,7 @@ public class GA2AgentExecutionHostTests
         await host.StartAsync();
         var agentExecutionInterface = host.Services.GetRequiredService<IAgentExecutionInterface>();
 
-        Assert.Equal(9, agentExecutionInterface.DiscoverCapabilities().Count);
+        Assert.Equal(10, agentExecutionInterface.DiscoverCapabilities().Count);
         await host.StopAsync();
     }
 

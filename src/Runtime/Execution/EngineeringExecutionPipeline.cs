@@ -5,6 +5,7 @@ using Runtime.DomainContent.ConversationManagement;
 using Runtime.DomainContent.DeliveryExecution;
 using Runtime.DomainContent.EngineeringPlanning;
 using Runtime.DomainContent.RepositoryIntelligence;
+using Runtime.DomainContent.RepositoryMaintenance;
 using Runtime.DomainContent.RepositoryMigration;
 using Runtime.Hosts.Agent;
 using Runtime.Orchestration;
@@ -108,6 +109,7 @@ public sealed class EngineeringExecutionPipeline
             "WFL-DEL-0007" => FromEngineeringSpecificationReview(request),
             "WFL-DEL-0005" => FromImplementationValidation(request),
             "WFL-DEL-0009" => FromMigrationPlanning(request),
+            "WFL-DEL-0011" => FromMaintenancePlanning(request),
             _ => new ExecutionResult(false, null, null, new[] { $"No executable dispatch target for capability '{routingResult.TargetCapabilityId}'." }, null, TimeSpan.Zero, null, null),
         };
     }
@@ -219,6 +221,53 @@ public sealed class EngineeringExecutionPipeline
         }
 
         return new ExecutionResult(true, "WFL-DEL-0009", "AGT-EXE-0016", assembly.OpenItems, new[] { assembly.ImplementationReadiness }, TimeSpan.Zero,
+            assembly.ApprovalSummary, "Awaiting Business Approval.",
+            RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths);
+    }
+
+    // Epic 5 (Engineering Maintenance & Repository Hygiene, ai-engineering-
+    // framework repo): AGT-EXE-0018 Repository Maintenance Agent. Its own
+    // three Skills read, classify, and draft - none writes a file; every
+    // actual dependency bump, config edit, or cleanup remains an ordinary
+    // Story through the unmodified WFL-DEL-0005, the same boundary Migration
+    // Planning already established for itself.
+    private ExecutionResult FromMaintenancePlanning(EngineeringRequest request)
+    {
+        var repositoryContext = TryGetRepositoryContext(request);
+        if (repositoryContext is null)
+        {
+            return MissingRepositoryContext("WFL-DEL-0011", "AGT-EXE-0018");
+        }
+
+        var goal = request.Payload is not null && request.Payload.TryGetValue("Goal", out var goalObj) && goalObj is string goalText
+            ? goalText
+            : request.UserRequest;
+
+        var healthAssessment = InvokeSkill<RepositoryHealthAssessmentResult>(
+            "SKL-EXE-0042", "RepositoryHealthAssessmentRequest", new RepositoryHealthAssessmentRequest(goal, repositoryContext), request.ProjectProfileId, "Maintenance-Health");
+        if (healthAssessment is null)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0011", "AGT-EXE-0018", new[] { "SKL-EXE-0042 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var planning = InvokeSkill<MaintenancePlanningResult>(
+            "SKL-EXE-0043", "MaintenancePlanningRequest", new MaintenancePlanningRequest(healthAssessment.Findings, repositoryContext), request.ProjectProfileId, "Maintenance-Planning");
+        if (planning is null)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0011", "AGT-EXE-0018", new[] { "SKL-EXE-0043 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var inheritedOpenItems = healthAssessment.OpenItems.Concat(planning.OpenItems).ToList();
+        var assembly = InvokeSkill<MaintenanceSpecificationAssemblyResult>(
+            "SKL-EXE-0044", "MaintenanceSpecificationAssemblyRequest",
+            new MaintenanceSpecificationAssemblyRequest(goal, healthAssessment.Findings, planning.Items, inheritedOpenItems),
+            request.ProjectProfileId, "Maintenance-Assembly");
+        if (assembly is null)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0011", "AGT-EXE-0018", new[] { "SKL-EXE-0044 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        return new ExecutionResult(true, "WFL-DEL-0011", "AGT-EXE-0018", assembly.OpenItems, new[] { assembly.ImplementationReadiness }, TimeSpan.Zero,
             assembly.ApprovalSummary, "Awaiting Business Approval.",
             RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths);
     }
