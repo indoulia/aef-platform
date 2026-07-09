@@ -21,6 +21,7 @@ using Runtime.DomainContent.EngineeringPlanning;
 using Runtime.DomainContent.EngineeringSpecificationReview;
 using Runtime.DomainContent.ImplementationValidation;
 using Runtime.DomainContent.RepositoryIntelligence;
+using Runtime.DomainContent.PlatformLifecycle;
 using Runtime.DomainContent.RepositoryMaintenance;
 using Runtime.DomainContent.RepositoryMigration;
 using Runtime.DomainContent.RepositoryValidation;
@@ -118,6 +119,11 @@ builder.Services.AddSingleton(sp =>
         ["SKL-EXE-0042"] = new RepositoryHealthAssessmentBehavior(),
         ["SKL-EXE-0043"] = new MaintenancePlanningRiskAndSequencingBehavior(),
         ["SKL-EXE-0044"] = new MaintenanceSpecificationAssemblyAndApprovalRequestBehavior(),
+        ["SKL-EXE-0045"] = new PlatformLifecycleRequestClassificationBehavior(),
+        ["SKL-EXE-0046"] = new RegistryAndReferenceIntegrityDiagnosisBehavior(),
+        ["SKL-EXE-0047"] = new ArtifactPreservationClassificationBehavior(),
+        ["SKL-EXE-0048"] = new SnapshotAndRestorePlanningBehavior(),
+        ["SKL-EXE-0049"] = new PlatformLifecycleOperationPlanAssemblyAndApprovalRequestBehavior(),
     };
 
     return RuntimeBootstrapper.Boot(

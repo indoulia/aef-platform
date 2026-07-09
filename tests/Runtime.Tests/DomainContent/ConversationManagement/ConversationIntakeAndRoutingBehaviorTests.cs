@@ -20,6 +20,12 @@ public class ConversationIntakeAndRoutingBehaviorTests
     [InlineData("Please analyze the repository", "WFL-DEL-0008")]
     [InlineData("Plan the specification for a new capability", "WFL-DEL-0006")]
     [InlineData("Validate the build", "REPO-VALIDATION")]
+    [InlineData("Install AEF into this repository", "WFL-DEL-0012")]
+    [InlineData("Upgrade AEF from v1.0 to v1.1", "WFL-DEL-0012")]
+    [InlineData("Repair my AEF installation", "WFL-DEL-0012")]
+    [InlineData("Reset generated artifacts", "WFL-DEL-0012")]
+    [InlineData("Backup AEF now", "WFL-DEL-0012")]
+    [InlineData("Rollback an upgrade", "WFL-DEL-0012")]
     public void Execute_KnownKeyword_RoutesToTheMatchingCapability(string userRequest, string expectedCapabilityId)
     {
         var behavior = new ConversationIntakeAndRoutingBehavior();

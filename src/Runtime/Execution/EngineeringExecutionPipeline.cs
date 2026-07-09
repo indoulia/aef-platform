@@ -5,6 +5,7 @@ using Runtime.DomainContent.ConversationManagement;
 using Runtime.DomainContent.DeliveryExecution;
 using Runtime.DomainContent.EngineeringPlanning;
 using Runtime.DomainContent.RepositoryIntelligence;
+using Runtime.DomainContent.PlatformLifecycle;
 using Runtime.DomainContent.RepositoryMaintenance;
 using Runtime.DomainContent.RepositoryMigration;
 using Runtime.Hosts.Agent;
@@ -110,6 +111,7 @@ public sealed class EngineeringExecutionPipeline
             "WFL-DEL-0005" => FromImplementationValidation(request),
             "WFL-DEL-0009" => FromMigrationPlanning(request),
             "WFL-DEL-0011" => FromMaintenancePlanning(request),
+            "WFL-DEL-0012" => FromPlatformLifecycle(request),
             _ => new ExecutionResult(false, null, null, new[] { $"No executable dispatch target for capability '{routingResult.TargetCapabilityId}'." }, null, TimeSpan.Zero, null, null),
         };
     }
@@ -269,6 +271,132 @@ public sealed class EngineeringExecutionPipeline
 
         return new ExecutionResult(true, "WFL-DEL-0011", "AGT-EXE-0018", assembly.OpenItems, new[] { assembly.ImplementationReadiness }, TimeSpan.Zero,
             assembly.ApprovalSummary, "Awaiting Business Approval.",
+            RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths);
+    }
+
+    // Epic 6 (Platform Lifecycle Management, ai-engineering-framework repo):
+    // AGT-EXE-0019 Platform Lifecycle Agent. Its own Scope Boundary is
+    // universal across all six operation types - it never itself installs,
+    // upgrades, repairs, resets, backs up, or restores anything, only
+    // produces a reviewed Plan. Upgrade is the one operation type with a
+    // real, live delegation target: this method hands off directly to
+    // Migration Planning's own Strategy/Assembly Skills (SKL-EXE-0035/0036),
+    // with Transformation Classification forced to "Technology/Framework
+    // Upgrade" per Responsibility 3 - Migration's own Classification Skill
+    // (SKL-EXE-0034) is deliberately skipped, since this Agent's own
+    // classification already determined the operation type. Installation
+    // names CU-3's onboarding sequence as the next step rather than
+    // invoking it - that sequence has no live dispatch entry on this
+    // Pipeline today (confirmed, not assumed).
+    private ExecutionResult FromPlatformLifecycle(EngineeringRequest request)
+    {
+        var repositoryContext = TryGetRepositoryContext(request);
+        if (repositoryContext is null)
+        {
+            return MissingRepositoryContext("WFL-DEL-0012", "AGT-EXE-0019");
+        }
+
+        var goal = request.Payload is not null && request.Payload.TryGetValue("Goal", out var goalObj) && goalObj is string goalText
+            ? goalText
+            : request.UserRequest;
+
+        var classification = InvokeSkill<OperationClassificationResult>(
+            "SKL-EXE-0045", "OperationClassificationRequest", new OperationClassificationRequest(goal, repositoryContext), request.ProjectProfileId, "PlatformLifecycle-Classification");
+        if (classification is null)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0012", "AGT-EXE-0019", new[] { "SKL-EXE-0045 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var details = new List<string>();
+        var openItems = new List<string>(classification.OpenItems);
+
+        switch (classification.OperationType)
+        {
+            case "Upgrade":
+                var currentState = repositoryContext.TechnologyProfile is { } profile
+                    ? $"Current stack, per Repository Intelligence: {string.Join("; ", profile.Technologies.Select(t => t.Name))}."
+                    : "No Technology Profile is available - current state requires human input.";
+                var forcedClassification = new TransformationClassificationResult("Technology/Framework Upgrade", currentState, "Not determined by automated classification - requires human input.", Array.Empty<string>());
+
+                var strategy = InvokeSkill<MigrationStrategyResult>(
+                    "SKL-EXE-0035", "MigrationStrategyRequest",
+                    new MigrationStrategyRequest(forcedClassification.TransformationClassification, forcedClassification.CurrentState, forcedClassification.TargetState, repositoryContext),
+                    request.ProjectProfileId, "PlatformLifecycle-Upgrade-Strategy");
+                if (strategy is null)
+                {
+                    return new ExecutionResult(false, "WFL-DEL-0012", "AGT-EXE-0019", new[] { "SKL-EXE-0035 is not invocable." }, null, TimeSpan.Zero, null, null);
+                }
+
+                var upgradeInheritedOpenItems = forcedClassification.OpenItems.Concat(strategy.OpenItems).ToList();
+                var upgradeAssembly = InvokeSkill<MigrationSpecificationAssemblyResult>(
+                    "SKL-EXE-0036", "MigrationSpecificationAssemblyRequest",
+                    new MigrationSpecificationAssemblyRequest(goal, forcedClassification.TransformationClassification, forcedClassification.CurrentState, forcedClassification.TargetState,
+                        strategy.Phases, strategy.DependencyAndBreakingChangeAnalysis, strategy.CompatibilityAnalysis, upgradeInheritedOpenItems),
+                    request.ProjectProfileId, "PlatformLifecycle-Upgrade-Assembly");
+                if (upgradeAssembly is null)
+                {
+                    return new ExecutionResult(false, "WFL-DEL-0012", "AGT-EXE-0019", new[] { "SKL-EXE-0036 is not invocable." }, null, TimeSpan.Zero, null, null);
+                }
+
+                details.Add($"Delegated to AGT-EXE-0016 Migration Planning Agent: {upgradeAssembly.ApprovalSummary}");
+                openItems.AddRange(upgradeAssembly.OpenItems);
+                break;
+
+            case "Installation":
+                details.Add($"Onboarding prerequisite check: repository is {(repositoryContext.IsReadable ? "readable" : "not readable")}. Hands off to CU-3's existing onboarding sequence for the actual onboarding steps.");
+                openItems.Add("CU-3's onboarding sequence has no live dispatch entry on this Pipeline yet - the actual onboarding steps require a human-directed session.");
+                break;
+
+            case "Repair":
+                var diagnosis = InvokeSkill<RegistryAndReferenceIntegrityDiagnosisResult>(
+                    "SKL-EXE-0046", "RegistryAndReferenceIntegrityDiagnosisRequest", new RegistryAndReferenceIntegrityDiagnosisRequest(repositoryContext), request.ProjectProfileId, "PlatformLifecycle-Repair");
+                if (diagnosis is null)
+                {
+                    return new ExecutionResult(false, "WFL-DEL-0012", "AGT-EXE-0019", new[] { "SKL-EXE-0046 is not invocable." }, null, TimeSpan.Zero, null, null);
+                }
+
+                details.AddRange(diagnosis.Findings.Select(f => $"[{f.Classification}] {f.Citation}: {f.Rationale}"));
+                openItems.AddRange(diagnosis.OpenItems);
+                break;
+
+            case "Reset":
+                var reset = InvokeSkill<ArtifactPreservationClassificationResult>(
+                    "SKL-EXE-0047", "ArtifactPreservationClassificationRequest", new ArtifactPreservationClassificationRequest(goal), request.ProjectProfileId, "PlatformLifecycle-Reset");
+                if (reset is null)
+                {
+                    return new ExecutionResult(false, "WFL-DEL-0012", "AGT-EXE-0019", new[] { "SKL-EXE-0047 is not invocable." }, null, TimeSpan.Zero, null, null);
+                }
+
+                details.Add($"[{reset.Classification}] {reset.Rationale}");
+                break;
+
+            case "Backup":
+            case "Restore":
+                var targetGitRef = request.Payload is not null && request.Payload.TryGetValue("TargetGitRef", out var refObj) && refObj is string refText ? refText : null;
+                var snapshot = InvokeSkill<SnapshotAndRestorePlanningResult>(
+                    "SKL-EXE-0048", "SnapshotAndRestorePlanningRequest", new SnapshotAndRestorePlanningRequest(classification.OperationType, repositoryContext, targetGitRef),
+                    request.ProjectProfileId, "PlatformLifecycle-Snapshot");
+                if (snapshot is null)
+                {
+                    return new ExecutionResult(false, "WFL-DEL-0012", "AGT-EXE-0019", new[] { "SKL-EXE-0048 is not invocable." }, null, TimeSpan.Zero, null, null);
+                }
+
+                details.AddRange(snapshot.Details);
+                openItems.AddRange(snapshot.OpenItems);
+                break;
+        }
+
+        var assembly = InvokeSkill<PlatformLifecycleOperationPlanAssemblyResult>(
+            "SKL-EXE-0049", "PlatformLifecycleOperationPlanAssemblyRequest",
+            new PlatformLifecycleOperationPlanAssemblyRequest(goal, classification.OperationType, repositoryContext, details, openItems),
+            request.ProjectProfileId, "PlatformLifecycle-Assembly");
+        if (assembly is null)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0012", "AGT-EXE-0019", new[] { "SKL-EXE-0049 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        return new ExecutionResult(true, "WFL-DEL-0012", "AGT-EXE-0019", assembly.OpenItems, new[] { assembly.ImplementationReadiness }, TimeSpan.Zero,
+            assembly.ApprovalSummary, "Awaiting Human Approval.",
             RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths);
     }
 
