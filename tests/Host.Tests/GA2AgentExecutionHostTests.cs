@@ -136,7 +136,7 @@ public class GA2AgentExecutionHostTests
     }
 
     [Fact]
-    public async Task StartAsync_DiscoverCapabilities_ReturnsTheHandAuthoredEightCapabilities()
+    public async Task StartAsync_DiscoverCapabilities_ReturnsTheHandAuthoredNineCapabilities()
     {
         var builder = CreateBuilder(new Dictionary<string, string?>
         {
@@ -150,7 +150,7 @@ public class GA2AgentExecutionHostTests
         await host.StartAsync();
         var agentExecutionInterface = host.Services.GetRequiredService<IAgentExecutionInterface>();
 
-        Assert.Equal(8, agentExecutionInterface.DiscoverCapabilities().Count);
+        Assert.Equal(9, agentExecutionInterface.DiscoverCapabilities().Count);
         await host.StopAsync();
     }
 

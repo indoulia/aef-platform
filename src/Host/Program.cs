@@ -20,6 +20,7 @@ using Runtime.DomainContent.EngineeringPlanning;
 using Runtime.DomainContent.EngineeringSpecificationReview;
 using Runtime.DomainContent.ImplementationValidation;
 using Runtime.DomainContent.RepositoryIntelligence;
+using Runtime.DomainContent.RepositoryMigration;
 using Runtime.DomainContent.RepositoryValidation;
 using Runtime.Execution;
 using Runtime.Hosts.Skill;
@@ -122,6 +123,9 @@ builder.Services.AddSingleton(sp =>
         ["SKL-EXE-0032"] = new EngineeringDiagnosticsAndRootCauseAnalysisBehavior(),
         ["SKL-EXE-0033"] = new RecommendationSynthesisAndEvidenceBasedReportingBehavior(),
         ["REPO-VALIDATION"] = new RepositoryValidationSkillBehavior(),
+        ["SKL-EXE-0034"] = new MigrationAssessmentAndTransformationClassificationBehavior(),
+        ["SKL-EXE-0035"] = new MigrationStrategyPhasingAndRiskAnalysisBehavior(),
+        ["SKL-EXE-0036"] = new MigrationSpecificationAssemblyAndApprovalRequestBehavior(),
     };
 
     return RuntimeBootstrapper.Boot(

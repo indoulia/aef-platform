@@ -166,6 +166,23 @@ public class RepositoryEngineeringHostIntegrationTests
             File.SetAttributes(file, FileAttributes.Normal);
         }
 
-        Directory.Delete(root, true);
+        // Execution-discovered flake (dogfooding sweep): a file inside a
+        // just-created git repository can still be momentarily locked by
+        // another process (observed under full-suite parallel test runs,
+        // not reproducible running this class alone) - Directory.Delete
+        // throws IOException in that window. Retry with a short backoff
+        // rather than failing the test over a transient OS-level lock.
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                Directory.Delete(root, true);
+                return;
+            }
+            catch (IOException) when (attempt < 5)
+            {
+                Thread.Sleep(100 * attempt);
+            }
+        }
     }
 }

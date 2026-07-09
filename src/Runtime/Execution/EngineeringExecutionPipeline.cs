@@ -5,6 +5,7 @@ using Runtime.DomainContent.ConversationManagement;
 using Runtime.DomainContent.DeliveryExecution;
 using Runtime.DomainContent.EngineeringPlanning;
 using Runtime.DomainContent.RepositoryIntelligence;
+using Runtime.DomainContent.RepositoryMigration;
 using Runtime.Hosts.Agent;
 using Runtime.Orchestration;
 
@@ -106,6 +107,7 @@ public sealed class EngineeringExecutionPipeline
             "REPO-VALIDATION" => FromRepositoryValidation(request),
             "WFL-DEL-0007" => FromEngineeringSpecificationReview(request),
             "WFL-DEL-0005" => FromImplementationValidation(request),
+            "WFL-DEL-0009" => FromMigrationPlanning(request),
             _ => new ExecutionResult(false, null, null, new[] { $"No executable dispatch target for capability '{routingResult.TargetCapabilityId}'." }, null, TimeSpan.Zero, null, null),
         };
     }
@@ -166,6 +168,58 @@ public sealed class EngineeringExecutionPipeline
 
         var diagnosticsList = drafting.OpenItems.Concat(drafting.AlignmentFindings).ToList();
         return new ExecutionResult(true, "WFL-DEL-0006", "AGT-EXE-0012", diagnosticsList, new[] { readiness.ImplementationReadiness }, TimeSpan.Zero, readiness.ApprovalSummary, "Awaiting Business Approval.",
+            RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths);
+    }
+
+    // Epic 3 (Repository Migration & Modernization, ai-engineering-framework
+    // repo): AGT-EXE-0016 Migration Planning Agent. Deliberately its own
+    // dispatch method, not folded into FromEngineeringPlanning - the
+    // Migration Planning Agent's own design leaves the composition choice
+    // (hand conditional content to Engineering Planner vs. assemble it
+    // independently) to whichever Epic builds this; assembling it
+    // independently here touches zero of Engineering Planning's own
+    // already-frozen, tested code (Minimum Governance Change).
+    private ExecutionResult FromMigrationPlanning(EngineeringRequest request)
+    {
+        var repositoryContext = TryGetRepositoryContext(request);
+        if (repositoryContext is null)
+        {
+            return MissingRepositoryContext("WFL-DEL-0009", "AGT-EXE-0016");
+        }
+
+        var goal = request.Payload is not null && request.Payload.TryGetValue("Goal", out var goalObj) && goalObj is string goalText
+            ? goalText
+            : request.UserRequest;
+
+        var classification = InvokeSkill<TransformationClassificationResult>(
+            "SKL-EXE-0034", "TransformationClassificationRequest", new TransformationClassificationRequest(goal, repositoryContext), request.ProjectProfileId, "Migration-Assessment");
+        if (classification is null)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0009", "AGT-EXE-0016", new[] { "SKL-EXE-0034 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var strategy = InvokeSkill<MigrationStrategyResult>(
+            "SKL-EXE-0035", "MigrationStrategyRequest",
+            new MigrationStrategyRequest(classification.TransformationClassification, classification.CurrentState, classification.TargetState, repositoryContext),
+            request.ProjectProfileId, "Migration-Strategy");
+        if (strategy is null)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0009", "AGT-EXE-0016", new[] { "SKL-EXE-0035 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var inheritedOpenItems = classification.OpenItems.Concat(strategy.OpenItems).ToList();
+        var assembly = InvokeSkill<MigrationSpecificationAssemblyResult>(
+            "SKL-EXE-0036", "MigrationSpecificationAssemblyRequest",
+            new MigrationSpecificationAssemblyRequest(goal, classification.TransformationClassification, classification.CurrentState, classification.TargetState,
+                strategy.Phases, strategy.DependencyAndBreakingChangeAnalysis, strategy.CompatibilityAnalysis, inheritedOpenItems),
+            request.ProjectProfileId, "Migration-Assembly");
+        if (assembly is null)
+        {
+            return new ExecutionResult(false, "WFL-DEL-0009", "AGT-EXE-0016", new[] { "SKL-EXE-0036 is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        return new ExecutionResult(true, "WFL-DEL-0009", "AGT-EXE-0016", assembly.OpenItems, new[] { assembly.ImplementationReadiness }, TimeSpan.Zero,
+            assembly.ApprovalSummary, "Awaiting Business Approval.",
             RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths);
     }
 

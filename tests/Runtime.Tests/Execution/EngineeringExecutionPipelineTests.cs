@@ -418,7 +418,25 @@ public class EngineeringExecutionPipelineTests
             File.SetAttributes(file, FileAttributes.Normal);
         }
 
-        Directory.Delete(root, true);
+        // Execution-discovered flake (Epic 3 dogfooding sweep): a file
+        // inside a just-created git repository can still be momentarily
+        // locked by another process under full-suite parallel test runs -
+        // Directory.Delete throws IOException in that window. Retry with a
+        // short backoff rather than failing the test over a transient
+        // OS-level lock (same fix already applied to Host.Tests'
+        // RepositoryEngineeringHostIntegrationTests.DeleteRepository).
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                Directory.Delete(root, true);
+                return;
+            }
+            catch (IOException) when (attempt < 5)
+            {
+                Thread.Sleep(100 * attempt);
+            }
+        }
     }
 
     private sealed class AllowAllPolicyResolver : IPolicyResolver

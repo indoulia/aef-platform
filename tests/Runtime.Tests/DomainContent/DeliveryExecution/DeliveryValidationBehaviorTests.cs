@@ -54,6 +54,39 @@ public sealed class DeliveryValidationBehaviorTests
         Assert.Contains("No verification procedure", outcome.EscalationReason);
     }
 
+    // Execution-discovered (dogfooding sweep): a Technology-Profile-selected
+    // command (e.g. 'npm') that is simply not installed/on PATH on this host
+    // used to propagate ProcessVerificationRunner's InvalidOperationException
+    // all the way to an unhandled 500 (REST) / generic "unexpected error"
+    // (CLI) - real command, real process-start failure, never a synthetic
+    // fixture, per this file's own Validation Strategy.
+    [Fact]
+    public void VerificationCommandNotInstalled_Escalates_NeverThrows()
+    {
+        var request = new ValidationRequest("S31", Directory.GetCurrentDirectory(), "this-command-definitely-does-not-exist-xyz", Array.Empty<string>());
+        var behavior = new DeliveryValidationBehavior(request, new ProcessVerificationRunner());
+
+        var outcome = Assert.IsType<ValidationOutcome>(behavior.Execute(context: null!));
+
+        Assert.True(outcome.IsEscalated);
+        Assert.Null(outcome.LogEntry);
+        Assert.Contains("Could not run the verification procedure", outcome.EscalationReason);
+    }
+
+    [Fact]
+    public void VerificationCommandTimesOut_Escalates_NeverThrows()
+    {
+        var runner = new ThrowingVerificationRunner(new TimeoutException("Verification command 'stub' did not exit within 00:10:00."));
+        var request = new ValidationRequest("S31", Directory.GetCurrentDirectory(), "stub", Array.Empty<string>());
+        var behavior = new DeliveryValidationBehavior(request, runner);
+
+        var outcome = Assert.IsType<ValidationOutcome>(behavior.Execute(context: null!));
+
+        Assert.True(outcome.IsEscalated);
+        Assert.Null(outcome.LogEntry);
+        Assert.Contains("Could not run the verification procedure", outcome.EscalationReason);
+    }
+
     [Fact]
     public void LargeOutput_IsExcerpted_NeverUnboundedInTheLogEntry()
     {
@@ -78,5 +111,14 @@ public sealed class DeliveryValidationBehaviorTests
         public StubVerificationRunner(VerificationRunResult result) => _result = result;
 
         public VerificationRunResult Run(string workingDirectory, string command, IReadOnlyList<string> arguments) => _result;
+    }
+
+    private sealed class ThrowingVerificationRunner : IVerificationRunner
+    {
+        private readonly Exception _exception;
+
+        public ThrowingVerificationRunner(Exception exception) => _exception = exception;
+
+        public VerificationRunResult Run(string workingDirectory, string command, IReadOnlyList<string> arguments) => throw _exception;
     }
 }

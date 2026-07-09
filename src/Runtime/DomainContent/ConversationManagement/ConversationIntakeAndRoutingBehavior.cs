@@ -14,9 +14,9 @@ namespace Runtime.DomainContent.ConversationManagement;
 // capabilities this Runtime can actually dispatch to (WFL-DEL-0001,
 // WFL-DEL-0004, the Delivery Execution skill trio, WFL-DEL-0006,
 // WFL-DEL-0008, the repository validation path, WFL-DEL-0007 Specification
-// Review, and WFL-DEL-0005 Implementation Validation) - it never routes to
-// a capability with no executable realization, and asks for clarification
-// rather than guess.
+// Review, WFL-DEL-0005 Implementation Validation, and WFL-DEL-0009
+// Repository Migration Planning) - it never routes to a capability with no
+// executable realization, and asks for clarification rather than guess.
 public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
 {
     private static readonly (string Keyword, string CapabilityId)[] KnownCapabilities =
@@ -33,6 +33,9 @@ public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
         ("validate", "REPO-VALIDATION"),
         ("review specification", "WFL-DEL-0007"),
         ("merge readiness", "WFL-DEL-0005"),
+        ("migrate", "WFL-DEL-0009"),
+        ("migration", "WFL-DEL-0009"),
+        ("modernize", "WFL-DEL-0009"),
     };
 
     public object? Execute(RuntimeExecutionContext context)
@@ -53,7 +56,7 @@ public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
 
         return RoutingResult.NeedsClarification(new[]
         {
-            "Which capability should handle this request? Supported: feature, epic, delivery, analyze, plan, validate, review specification, merge readiness."
+            "Which capability should handle this request? Supported: feature, epic, delivery, analyze, plan, validate, review specification, merge readiness, migration."
         });
     }
 }

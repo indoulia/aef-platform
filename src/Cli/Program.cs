@@ -21,6 +21,7 @@ using Runtime.DomainContent.EngineeringPlanning;
 using Runtime.DomainContent.EngineeringSpecificationReview;
 using Runtime.DomainContent.ImplementationValidation;
 using Runtime.DomainContent.RepositoryIntelligence;
+using Runtime.DomainContent.RepositoryMigration;
 using Runtime.DomainContent.RepositoryValidation;
 using Runtime.Execution;
 using Runtime.Hosts.Skill;
@@ -110,6 +111,9 @@ builder.Services.AddSingleton(sp =>
         ["SKL-EXE-0032"] = new EngineeringDiagnosticsAndRootCauseAnalysisBehavior(),
         ["SKL-EXE-0033"] = new RecommendationSynthesisAndEvidenceBasedReportingBehavior(),
         ["REPO-VALIDATION"] = new RepositoryValidationSkillBehavior(),
+        ["SKL-EXE-0034"] = new MigrationAssessmentAndTransformationClassificationBehavior(),
+        ["SKL-EXE-0035"] = new MigrationStrategyPhasingAndRiskAnalysisBehavior(),
+        ["SKL-EXE-0036"] = new MigrationSpecificationAssemblyAndApprovalRequestBehavior(),
     };
 
     return RuntimeBootstrapper.Boot(
@@ -235,6 +239,12 @@ static int RunExecute(Dictionary<string, string?> flags, IServiceProvider provid
 static int RunCapabilities(Dictionary<string, string?> flags, IServiceProvider provider)
 {
     var output = flags.GetValueOrDefault("output", "text")!;
+    if (output is not ("text" or "json"))
+    {
+        Console.Error.WriteLine("--output must be 'text' or 'json'.");
+        return CliExitCodeMapper.UsageError;
+    }
+
     var agent = provider.GetRequiredService<IAgentExecutionInterface>();
     Console.WriteLine(CliOutputFormatter.FormatCapabilities(agent.DiscoverCapabilities(), output));
     return 0;

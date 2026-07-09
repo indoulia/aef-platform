@@ -16,6 +16,11 @@ public static class CliExecuteArgumentsValidator
             return "--project-profile-id must not be empty.";
         }
 
+        if (arguments.Output is not ("text" or "json"))
+        {
+            return "--output must be 'text' or 'json'.";
+        }
+
         if (arguments.PayloadJson is not null)
         {
             try
