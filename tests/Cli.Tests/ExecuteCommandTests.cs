@@ -27,4 +27,22 @@ public class ExecuteCommandTests
         Assert.Equal(64, exitCode);
         Assert.NotEmpty(stderr);
     }
+
+    [Fact]
+    public void Execute_InvalidOutputValue_ExitsWithUsageError()
+    {
+        var (exitCode, _, stderr) = CliExecutableFixture.Run("execute", "--user-request", "x", "--project-profile-id", "default-profile", "--output", "xml");
+
+        Assert.Equal(64, exitCode);
+        Assert.NotEmpty(stderr);
+    }
+
+    [Fact]
+    public void Execute_OutputValueWrongCase_ExitsWithUsageError()
+    {
+        var (exitCode, _, stderr) = CliExecutableFixture.Run("execute", "--user-request", "x", "--project-profile-id", "default-profile", "--output", "JSON");
+
+        Assert.Equal(64, exitCode);
+        Assert.NotEmpty(stderr);
+    }
 }

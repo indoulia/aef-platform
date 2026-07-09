@@ -18,9 +18,11 @@ aef-cli capabilities [--output text|json]
 
 Always exits `0`.
 
-## Session persistence
+## Session persistence — not currently functional standalone
 
-Pass `--session-id` (the value echoed by a prior `execute` call's output) to continue a multi-turn conversation across separate invocations — no environment-variable fallback is supported.
+`execute` accepts `--session-id`, but the CLI has no `sessions` command and never calls `IAgentExecutionInterface.StartSession` — no CLI invocation ever produces a session id (`sessionId` is `null` in every `execute` response, in every status, including `NeedsClarification`). Each `execute` invocation is also its own process with its own empty `InMemorySessionStore`, entirely separate from the REST Adapter's own long-lived one — a session id created via `POST /api/v1/sessions` is never valid from the CLI, and vice versa.
+
+In practice, passing any `--session-id` value to `execute` today always fails with `Unknown session.` (exit `1`) — this is the current, tested behavior (`ExecuteCommandTests.Execute_UnknownSessionId_ExitsOne`), not a bug. `--session-id` is reserved for a future session-creation command and/or a persistent, cross-process session store; neither exists yet.
 
 ## Security
 

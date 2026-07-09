@@ -41,4 +41,16 @@ public class CliExecuteArgumentsValidatorTests
 
         Assert.Null(CliExecuteArgumentsValidator.Validate(args));
     }
+
+    [Theory]
+    [InlineData("xml")]
+    [InlineData("JSON")]
+    [InlineData("Text")]
+    [InlineData("")]
+    public void Validate_InvalidOutputValue_ReturnsError(string output)
+    {
+        var args = new CliExecuteArguments("start a new feature", "default-profile", null, null, output);
+
+        Assert.NotNull(CliExecuteArgumentsValidator.Validate(args));
+    }
 }

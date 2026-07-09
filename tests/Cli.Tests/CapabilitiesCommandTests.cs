@@ -20,4 +20,13 @@ public class CapabilitiesCommandTests
         using var document = System.Text.Json.JsonDocument.Parse(stdout);
         Assert.Equal(8, document.RootElement.GetArrayLength());
     }
+
+    [Fact]
+    public void Capabilities_InvalidOutputValue_ExitsWithUsageError()
+    {
+        var (exitCode, _, stderr) = CliExecutableFixture.Run("capabilities", "--output", "xml");
+
+        Assert.Equal(64, exitCode);
+        Assert.NotEmpty(stderr);
+    }
 }

@@ -235,6 +235,12 @@ static int RunExecute(Dictionary<string, string?> flags, IServiceProvider provid
 static int RunCapabilities(Dictionary<string, string?> flags, IServiceProvider provider)
 {
     var output = flags.GetValueOrDefault("output", "text")!;
+    if (output is not ("text" or "json"))
+    {
+        Console.Error.WriteLine("--output must be 'text' or 'json'.");
+        return CliExitCodeMapper.UsageError;
+    }
+
     var agent = provider.GetRequiredService<IAgentExecutionInterface>();
     Console.WriteLine(CliOutputFormatter.FormatCapabilities(agent.DiscoverCapabilities(), output));
     return 0;
