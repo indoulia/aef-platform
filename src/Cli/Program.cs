@@ -2,6 +2,7 @@
 // src/Host/Program.cs (minus every REST-specific piece) rather than
 // sharing it - see Capability 3's design Decision 2 for the accepted
 // tradeoff. If you change one, check the other.
+using System.Reflection;
 using Adapters.Cli;
 using AefPlatform.Host;
 using Microsoft.Extensions.DependencyInjection;
@@ -169,7 +170,7 @@ static int Run(string[] args, IServiceProvider provider)
 {
     if (args.Length == 0)
     {
-        Console.Error.WriteLine("Usage: aef-cli <execute|capabilities> [options]");
+        Console.Error.WriteLine("Usage: aef-cli <execute|capabilities|install> [options]");
         return CliExitCodeMapper.UsageError;
     }
 
@@ -180,13 +181,14 @@ static int Run(string[] args, IServiceProvider provider)
     {
         "execute" => RunExecute(flags, provider),
         "capabilities" => RunCapabilities(flags, provider),
+        "install" => RunInstall(flags),
         _ => UnknownCommand(command),
     };
 }
 
 static int UnknownCommand(string command)
 {
-    Console.Error.WriteLine($"Unknown command '{command}'. Expected 'execute' or 'capabilities'.");
+    Console.Error.WriteLine($"Unknown command '{command}'. Expected 'execute', 'capabilities', or 'install'.");
     return CliExitCodeMapper.UsageError;
 }
 
@@ -257,5 +259,39 @@ static int RunCapabilities(Dictionary<string, string?> flags, IServiceProvider p
 
     var agent = provider.GetRequiredService<IAgentExecutionInterface>();
     Console.WriteLine(CliOutputFormatter.FormatCapabilities(agent.DiscoverCapabilities(), output));
+    return 0;
+}
+
+// Satisfies the Distribution Component Installation Contract (AEF Distribution
+// Architecture Specification §4.1/INV-12): version-pinned, target-path
+// parameterized, idempotent, failure reported as an exit code, materialized
+// location reported on success. AEF Platform's own capability, independent of
+// AEF Distribution - deliberately does not reference anything Distribution-owned.
+static int RunInstall(Dictionary<string, string?> flags)
+{
+    var arguments = new CliInstallArguments(
+        flags.GetValueOrDefault("version", string.Empty)!,
+        flags.GetValueOrDefault("target-path", string.Empty)!);
+
+    var validationError = CliInstallArgumentsValidator.Validate(arguments);
+    if (validationError is not null)
+    {
+        Console.Error.WriteLine(validationError);
+        return CliExitCodeMapper.UsageError;
+    }
+
+    var builtVersion = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
+        ?? "unknown";
+    var installer = new FileSystemPlatformInstaller(AppContext.BaseDirectory, builtVersion);
+    var outcome = installer.Install(arguments.Version, arguments.TargetPath);
+
+    if (!outcome.Succeeded)
+    {
+        Console.Error.WriteLine(outcome.FailureReason);
+        return arguments.Version != builtVersion ? CliExitCodeMapper.UsageError : CliExitCodeMapper.SoftwareError;
+    }
+
+    Console.WriteLine($"AEF Platform {builtVersion} installed to {outcome.MaterializedPath}");
     return 0;
 }
