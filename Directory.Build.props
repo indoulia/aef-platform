@@ -6,6 +6,6 @@
     <!-- Single source of truth for AEF Platform's own product version, introduced
          so the "install" CLI command can verify a requested version against what
          is actually built (Distribution Component Installation Contract §4.1). -->
-    <Version>1.0.0</Version>
+    <Version>1.0.2</Version>
   </PropertyGroup>
 </Project>
