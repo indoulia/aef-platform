@@ -280,9 +280,7 @@ static int RunInstall(Dictionary<string, string?> flags)
         return CliExitCodeMapper.UsageError;
     }
 
-    var builtVersion = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-        ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
-        ?? "unknown";
+    var builtVersion = PlatformVersion.Resolve(Assembly.GetExecutingAssembly());
     var installer = new FileSystemPlatformInstaller(AppContext.BaseDirectory, builtVersion);
     var outcome = installer.Install(arguments.Version, arguments.TargetPath);
 
