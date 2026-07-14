@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text.Json;
+using Runtime.Agent.Capabilities;
 
 namespace Mcp.Tests;
 
@@ -87,21 +89,44 @@ public class McpExecutableStartupTests
         Assert.Contains("\"result\"", response);
     }
 
-    // Story S2's own acceptance description: "responding to the protocol's
-    // own capability/tool-listing handshake with zero tools registered
-    // yet." Completes the full MCP lifecycle (initialize -> initialized
-    // notification -> tools/list) and asserts the REAL, verified behavior
-    // discovered running this test against the actual SDK: with the tools
-    // capability never enabled (no tool-registration call made at all,
-    // per Program.cs's own comment), the server responds to tools/list
-    // with a protocol-conformant "Method not found" (-32601) - a real,
-    // well-formed JSON-RPC response, not a hang, crash, or malformed
-    // reply. This is "responds to the handshake with zero tools," stated
-    // honestly rather than asserting an empty list the server does not
-    // actually produce today.
-    [Fact]
-    public async Task McpExecutable_ToolsList_RespondsWithMethodNotFound_WhenNoToolsCapabilityIsRegistered()
+    // Epic M2-0001 Story S3: "one MCP tool is registered per
+    // CapabilityDescriptor... transcribed from the existing
+    // CapabilityDescriptor record, never hand-invented" - asserted here
+    // against the SAME live catalog (EngineeringAgentCapabilityCatalog)
+    // Program.cs's own ListToolsHandler reads from, not a hard-coded
+    // count that could silently drift out of sync with it. Supersedes
+    // Story S2's own "-32601 Method not found" test - that was the
+    // correct, honest behavior for zero tools registered; Story S3
+    // intentionally changes it, so the old assertion is replaced, not
+    // left contradicting the new one.
+    // Transcribed from the Epic's own approved MCP Tool Catalog
+    // (docs/06-history/2026-07-14-aef-m2-epic-m2-0001-mcp-adapter-
+    // capability-exposure-plan.md §5, ai-engineering-framework repo) -
+    // the same mapping Program.cs's own ListToolsHandler must apply. Kept
+    // here, not derived from CapabilityDescriptor itself, since the
+    // friendly name is a presentation decision the Epic already made, not
+    // something CapabilityDescriptor carries.
+    private static readonly IReadOnlyDictionary<string, string> ExpectedToolNames = new Dictionary<string, string>
     {
+        ["WFL-DEL-0001"] = "aef_start_feature_lifecycle",
+        ["WFL-DEL-0004"] = "aef_start_epic_lifecycle",
+        ["SKL-EXE-0018"] = "aef_deliver_implementation",
+        ["WFL-DEL-0006"] = "aef_plan_engineering",
+        ["WFL-DEL-0007"] = "aef_review_specification",
+        ["WFL-DEL-0008"] = "aef_analyze_repository",
+        ["REPO-VALIDATION"] = "aef_validate_repository",
+        ["WFL-DEL-0009"] = "aef_plan_migration",
+        ["WFL-DEL-0011"] = "aef_plan_maintenance",
+        ["WFL-DEL-0012"] = "aef_manage_platform_lifecycle",
+        ["WFL-DEL-0005"] = "aef_validate_implementation",
+    };
+
+    [Fact]
+    public async Task McpExecutable_ToolsList_ReturnsOneToolPerCatalogCapability()
+    {
+        var expectedCapabilities = new EngineeringAgentCapabilityCatalog().Discover();
+        Assert.Equal(ExpectedToolNames.Count, expectedCapabilities.Count);
+
         using var process = StartMcpProcess();
         try
         {
@@ -120,10 +145,30 @@ public class McpExecutableStartupTests
             await process.StandardInput.FlushAsync();
 
             var toolsListResponse = await ReadLineWithTimeoutAsync(process.StandardOutput, TimeSpan.FromSeconds(30));
-
             Assert.NotNull(toolsListResponse);
-            Assert.Contains("\"error\"", toolsListResponse);
-            Assert.Contains("-32601", toolsListResponse);
+
+            // Parsed, structured comparison - not raw substring matching -
+            // since System.Text.Json's default encoder escapes characters
+            // like '&' (present in real capability descriptions), which a
+            // literal Contains() check against the un-escaped source text
+            // would incorrectly fail on.
+            using var document = JsonDocument.Parse(toolsListResponse);
+            var root = document.RootElement;
+            Assert.True(root.TryGetProperty("result", out var result));
+            Assert.True(result.TryGetProperty("tools", out var toolsElement));
+
+            var actualTools = toolsElement.EnumerateArray()
+                .ToDictionary(tool => tool.GetProperty("name").GetString()!, tool => tool);
+
+            Assert.Equal(expectedCapabilities.Count, actualTools.Count);
+
+            foreach (var capability in expectedCapabilities)
+            {
+                var expectedName = ExpectedToolNames[capability.CapabilityId];
+                Assert.True(actualTools.TryGetValue(expectedName, out var actualTool), $"Expected tool '{expectedName}' was not present in tools/list.");
+                Assert.Equal(capability.Description, actualTool.GetProperty("description").GetString());
+                Assert.True(actualTool.TryGetProperty("inputSchema", out _), $"Tool '{expectedName}' has no inputSchema.");
+            }
         }
         finally
         {

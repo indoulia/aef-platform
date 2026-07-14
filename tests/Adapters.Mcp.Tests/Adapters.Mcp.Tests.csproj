@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Adapters.Mcp\Adapters.Mcp.csproj" />
+    <ProjectReference Include="..\..\src\Runtime.Agent\Runtime.Agent.csproj" />
   </ItemGroup>
 
 </Project>
