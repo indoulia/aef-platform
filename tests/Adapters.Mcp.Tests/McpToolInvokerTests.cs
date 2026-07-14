@@ -1,0 +1,142 @@
+using System.Text.Json;
+using Runtime.Agent;
+
+namespace Adapters.Mcp.Tests;
+
+// Epic M2-0001 Story S4: unit-level coverage of the pure translation logic
+// (CallToolRequestParams.Arguments -> ExecutionRequest, ExecutionResponse ->
+// CallToolResult), independent of the subprocess-level integration test in
+// Mcp.Tests - the same test-pyramid split McpToolCatalogTests already uses
+// for Story S3's own translation layer.
+public class McpToolInvokerTests
+{
+    private static JsonElement Json(string value) => JsonSerializer.SerializeToElement(value);
+
+    [Fact]
+    public void BuildExecutionRequest_UsesFixedRoutingLiteral_AsUserRequest()
+    {
+        var request = McpToolInvoker.BuildExecutionRequest("aef_plan_engineering", new Dictionary<string, JsonElement>
+        {
+            ["RepositoryName"] = Json("Ferret"),
+            ["RepositoryRoot"] = Json(@"C:\POC\Ferret"),
+            ["Goal"] = Json("Plan the next increment."),
+        });
+
+        Assert.Equal("plan", request.UserRequest);
+    }
+
+    [Fact]
+    public void BuildExecutionRequest_TranscribesArguments_IntoPayload_ViaPayloadNormalization()
+    {
+        var request = McpToolInvoker.BuildExecutionRequest("aef_plan_engineering", new Dictionary<string, JsonElement>
+        {
+            ["RepositoryName"] = Json("Ferret"),
+            ["RepositoryRoot"] = Json(@"C:\POC\Ferret"),
+        });
+
+        Assert.NotNull(request.Payload);
+        Assert.Equal("Ferret", request.Payload!["RepositoryName"]);
+        Assert.Equal(@"C:\POC\Ferret", request.Payload["RepositoryRoot"]);
+    }
+
+    [Fact]
+    public void BuildExecutionRequest_ExtractsSessionIdFromArguments_NotIntoPayload()
+    {
+        var request = McpToolInvoker.BuildExecutionRequest("aef_analyze_repository", new Dictionary<string, JsonElement>
+        {
+            ["RepositoryName"] = Json("Ferret"),
+            ["RepositoryRoot"] = Json(@"C:\POC\Ferret"),
+            ["SessionId"] = Json("session-123"),
+        });
+
+        Assert.Equal("session-123", request.SessionId);
+        Assert.False(request.Payload!.ContainsKey("SessionId"));
+    }
+
+    [Fact]
+    public void BuildExecutionRequest_ExtractsProjectProfileIdFromArguments_NotIntoPayload()
+    {
+        var request = McpToolInvoker.BuildExecutionRequest("aef_analyze_repository", new Dictionary<string, JsonElement>
+        {
+            ["RepositoryName"] = Json("Ferret"),
+            ["RepositoryRoot"] = Json(@"C:\POC\Ferret"),
+            ["ProjectProfileId"] = Json("PPR-PRJ-0001"),
+        });
+
+        Assert.Equal("PPR-PRJ-0001", request.ProjectProfileId);
+        Assert.False(request.Payload!.ContainsKey("ProjectProfileId"));
+    }
+
+    [Fact]
+    public void BuildExecutionRequest_DefaultsProjectProfileIdToEmpty_WhenNotSupplied()
+    {
+        var request = McpToolInvoker.BuildExecutionRequest("aef_analyze_repository", new Dictionary<string, JsonElement>
+        {
+            ["RepositoryName"] = Json("Ferret"),
+            ["RepositoryRoot"] = Json(@"C:\POC\Ferret"),
+        });
+
+        Assert.Equal(string.Empty, request.ProjectProfileId);
+    }
+
+    [Theory]
+    [InlineData("aef_start_feature_lifecycle", "feature")]
+    [InlineData("aef_start_epic_lifecycle", "epic")]
+    [InlineData("aef_plan_engineering", "plan")]
+    [InlineData("aef_analyze_repository", "analyze")]
+    [InlineData("aef_validate_repository", "validate")]
+    [InlineData("aef_plan_migration", "migrate")]
+    [InlineData("aef_plan_maintenance", "maintenance")]
+    [InlineData("aef_manage_platform_lifecycle", "platform lifecycle")]
+    public void BuildExecutionRequest_EveryInScopeTool_HasItsApprovedRoutingLiteral(string toolName, string expectedLiteral)
+    {
+        var request = McpToolInvoker.BuildExecutionRequest(toolName, arguments: null);
+
+        Assert.Equal(expectedLiteral, request.UserRequest);
+    }
+
+    [Theory]
+    [InlineData("aef_deliver_implementation")]
+    [InlineData("aef_review_specification")]
+    [InlineData("aef_validate_implementation")]
+    [InlineData("not_a_real_tool")]
+    public void BuildExecutionRequest_ThrowsForDeferredOrUnknownTools(string toolName)
+    {
+        Assert.Throws<InvalidOperationException>(() => McpToolInvoker.BuildExecutionRequest(toolName, arguments: null));
+    }
+
+    [Fact]
+    public void BuildCallToolResult_MapsFailedStatus_ToIsErrorTrue()
+    {
+        var response = new ExecutionResponse(
+            "req-1", null, ExecutionStatus.Failed,
+            new ExecutionError("Something went wrong.", Array.Empty<string>()),
+            null, null,
+            new ExecutionEvidence(Array.Empty<string>(), null, null, null, null),
+            new ExecutionMetadata(null, null, TimeSpan.Zero, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+
+        var result = McpToolInvoker.BuildCallToolResult(response);
+
+        Assert.True(result.IsError);
+        var text = Assert.IsType<ModelContextProtocol.Protocol.TextContentBlock>(Assert.Single(result.Content));
+        Assert.Equal("Something went wrong.", text.Text);
+    }
+
+    [Theory]
+    [InlineData(ExecutionStatus.Completed)]
+    [InlineData(ExecutionStatus.NeedsClarification)]
+    public void BuildCallToolResult_MapsNonFailedStatuses_ToIsErrorFalse(ExecutionStatus status)
+    {
+        var response = new ExecutionResponse(
+            "req-1", null, status, null,
+            "Here is the result.", "Next step.",
+            new ExecutionEvidence(Array.Empty<string>(), null, null, null, null),
+            new ExecutionMetadata(null, null, TimeSpan.Zero, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+
+        var result = McpToolInvoker.BuildCallToolResult(response);
+
+        Assert.False(result.IsError);
+        var text = Assert.IsType<ModelContextProtocol.Protocol.TextContentBlock>(Assert.Single(result.Content));
+        Assert.Equal("Here is the result.", text.Text);
+    }
+}
