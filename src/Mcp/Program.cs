@@ -185,6 +185,17 @@ builder.Services
     })
     .WithCallToolHandler((context, _) =>
     {
+        // Story S5: authorize before doing anything else with the call,
+        // per the Pre-Story S5 Review - deny early rather than after
+        // deciding what the tool even is.
+        var securityEvaluator = context.Services!.GetRequiredService<ISecurityEvaluator>();
+        var securityContext = McpSecurityContextFactory.CreateForCurrentProcess();
+        var denial = McpSecurityContextFactory.EvaluateOrDeny(securityEvaluator, securityContext);
+        if (denial is not null)
+        {
+            return ValueTask.FromResult(denial);
+        }
+
         var toolName = context.Params!.Name;
         if (McpToolInvoker.IsDeferred(toolName))
         {
