@@ -180,43 +180,77 @@ builder.Services
     .WithStdioServerTransport()
     .WithListToolsHandler((context, _) =>
     {
-        var catalog = context.Services!.GetRequiredService<ICapabilityCatalog>();
-        return ValueTask.FromResult(McpToolCatalog.BuildListToolsResult(catalog.Discover()));
+        // Story S6: observability parity with RestRequestMetrics
+        // (Adapters.Rest). The catch-all records an error measurement and
+        // rethrows unchanged - it must never alter the already-verified
+        // (Story S3/S4) behavior of whatever happens above it, only
+        // observe it.
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var catalog = context.Services!.GetRequiredService<ICapabilityCatalog>();
+            var listResult = McpToolCatalog.BuildListToolsResult(catalog.Discover());
+            stopwatch.Stop();
+            McpRequestMetrics.RecordRequest("tools/list", isError: false, stopwatch.Elapsed);
+            return ValueTask.FromResult(listResult);
+        }
+        catch
+        {
+            stopwatch.Stop();
+            McpRequestMetrics.RecordRequest("tools/list", isError: true, stopwatch.Elapsed);
+            throw;
+        }
     })
     .WithCallToolHandler((context, _) =>
     {
-        // Story S5: authorize before doing anything else with the call,
-        // per the Pre-Story S5 Review - deny early rather than after
-        // deciding what the tool even is.
-        var securityEvaluator = context.Services!.GetRequiredService<ISecurityEvaluator>();
-        var securityContext = McpSecurityContextFactory.CreateForCurrentProcess();
-        var denial = McpSecurityContextFactory.EvaluateOrDeny(securityEvaluator, securityContext);
-        if (denial is not null)
-        {
-            return ValueTask.FromResult(denial);
-        }
-
         var toolName = context.Params!.Name;
-        if (McpToolInvoker.IsDeferred(toolName))
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        try
         {
-            var deferredResult = new ModelContextProtocol.Protocol.CallToolResult
-            {
-                IsError = true,
-                Content = new List<ModelContextProtocol.Protocol.ContentBlock>
-                {
-                    new ModelContextProtocol.Protocol.TextContentBlock
-                    {
-                        Text = $"'{toolName}' is a recognized but deferred tool (Pre-Story S4 Review §2.2) - not yet invocable.",
-                    },
-                },
-            };
-            return ValueTask.FromResult(deferredResult);
-        }
+            // Story S5: authorize before doing anything else with the
+            // call, per the Pre-Story S5 Review - deny early rather than
+            // after deciding what the tool even is.
+            var securityEvaluator = context.Services!.GetRequiredService<ISecurityEvaluator>();
+            var securityContext = McpSecurityContextFactory.CreateForCurrentProcess();
+            var denial = McpSecurityContextFactory.EvaluateOrDeny(securityEvaluator, securityContext);
 
-        var agent = context.Services!.GetRequiredService<IAgentExecutionInterface>();
-        var executionRequest = McpToolInvoker.BuildExecutionRequest(toolName, context.Params.Arguments);
-        var response = agent.Execute(executionRequest);
-        return ValueTask.FromResult(McpToolInvoker.BuildCallToolResult(response));
+            ModelContextProtocol.Protocol.CallToolResult callResult;
+            if (denial is not null)
+            {
+                callResult = denial;
+            }
+            else if (McpToolInvoker.IsDeferred(toolName))
+            {
+                callResult = new ModelContextProtocol.Protocol.CallToolResult
+                {
+                    IsError = true,
+                    Content = new List<ModelContextProtocol.Protocol.ContentBlock>
+                    {
+                        new ModelContextProtocol.Protocol.TextContentBlock
+                        {
+                            Text = $"'{toolName}' is a recognized but deferred tool (Pre-Story S4 Review §2.2) - not yet invocable.",
+                        },
+                    },
+                };
+            }
+            else
+            {
+                var agent = context.Services!.GetRequiredService<IAgentExecutionInterface>();
+                var executionRequest = McpToolInvoker.BuildExecutionRequest(toolName, context.Params.Arguments);
+                var response = agent.Execute(executionRequest);
+                callResult = McpToolInvoker.BuildCallToolResult(response);
+            }
+
+            stopwatch.Stop();
+            McpRequestMetrics.RecordRequest(toolName, callResult.IsError ?? false, stopwatch.Elapsed);
+            return ValueTask.FromResult(callResult);
+        }
+        catch
+        {
+            stopwatch.Stop();
+            McpRequestMetrics.RecordRequest(toolName, isError: true, stopwatch.Elapsed);
+            throw;
+        }
     });
 
 using var host = builder.Build();
