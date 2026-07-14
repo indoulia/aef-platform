@@ -7,6 +7,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Exact pin, matching AefPlatform.Mcp's own version exactly - per
+         the Pre-Story S2 Architecture Decision Review
+         (ai-engineering-framework repo, docs/06-history/2026-07-14-aef-m2-
+         epic-m2-0001-pre-s2-architecture-decision-review.md). A
+         third-party transport-SDK reference here is the same category
+         Adapters.Rest's own Microsoft.AspNetCore.App FrameworkReference
+         already is - ADR-0025's boundary forbids Runtime/Runtime.Ai/Kernel
+         references, not the channel's own transport package. -->
+    <PackageReference Include="ModelContextProtocol" Version="1.4.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Runtime.Agent\Runtime.Agent.csproj" />
   </ItemGroup>
 

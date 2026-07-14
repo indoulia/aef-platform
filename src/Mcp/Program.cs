@@ -158,22 +158,28 @@ builder.Services.AddSingleton<IAgentExecutionInterface>(sp => new AgentExecution
     sp.GetRequiredService<ISessionStore>()));
 builder.Services.AddSingleton<ISecurityEvaluator, TrustedDefaultSecurityEvaluator>();
 
-// Story S2 scope ends here: the MCP server is registered with the tools
-// capability not yet enabled at all - verified against the real SDK (not
-// assumed) that .WithToolsFromAssembly() has no effect while zero
-// [McpServerToolType] classes exist anywhere in this assembly, so it was
-// deliberately left out rather than kept as a no-op call. A tools/list
-// request today correctly, honestly returns a protocol-conformant
-// "Method not found" (-32601) - Story S3 populates the tool catalog from
-// ICapabilityCatalog, most likely via the SDK's programmatic
-// WithListToolsHandler/WithCallToolHandler surface (since S3's own
-// "transcribed from CapabilityDescriptor at runtime, never hand-invented"
-// shape is a dynamic catalog, not compile-time-attributed C# methods
-// WithToolsFromAssembly expects) - confirming which is Story S3's own
-// first task, not decided here.
+// Story S3: tools/list is answered via WithListToolsHandler, per the
+// Pre-Story S3 Architecture/Implementation Review (ai-engineering-
+// framework repo, docs/06-history/2026-07-14-aef-m2-epic-m2-0001-pre-s3-
+// architecture-implementation-review.md) - WithToolsFromAssembly/
+// McpServerTool.Create both infer input schema from compile-time-typed
+// delegate parameters, which does not fit CapabilityDescriptor's
+// runtime-known string keys. The actual translation lives in
+// Adapters.Mcp/McpToolCatalog.cs (transcription logic, not composition-
+// root wiring) - Program.cs only wires it in.
+//
+// WithCallToolHandler is deliberately not registered here - Story S4's
+// own scope. Calling any advertised tool before S4 lands still returns
+// the same protocol-conformant "Method not found" Story S2 already
+// validated for the no-tools-registered case.
 builder.Services
     .AddMcpServer()
-    .WithStdioServerTransport();
+    .WithStdioServerTransport()
+    .WithListToolsHandler((context, _) =>
+    {
+        var catalog = context.Services!.GetRequiredService<ICapabilityCatalog>();
+        return ValueTask.FromResult(McpToolCatalog.BuildListToolsResult(catalog.Discover()));
+    });
 
 using var host = builder.Build();
 
