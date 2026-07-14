@@ -168,10 +168,13 @@ builder.Services.AddSingleton<ISecurityEvaluator, TrustedDefaultSecurityEvaluato
 // Adapters.Mcp/McpToolCatalog.cs (transcription logic, not composition-
 // root wiring) - Program.cs only wires it in.
 //
-// WithCallToolHandler is deliberately not registered here - Story S4's
-// own scope. Calling any advertised tool before S4 lands still returns
-// the same protocol-conformant "Method not found" Story S2 already
-// validated for the no-tools-registered case.
+// Story S4: tool invocation via WithCallToolHandler, per the Pre-Story S4
+// Architecture/Implementation Review (ai-engineering-framework repo,
+// docs/06-history/2026-07-14-aef-m2-epic-m2-0001-pre-s4-architecture-
+// implementation-review.md). The actual translation
+// (CallToolRequestParams -> ExecutionRequest -> ExecutionResponse ->
+// CallToolResult, fixed per-tool routing literals, the 8-of-11 scope)
+// lives in Adapters.Mcp/McpToolInvoker.cs - Program.cs only wires it in.
 builder.Services
     .AddMcpServer()
     .WithStdioServerTransport()
@@ -179,6 +182,30 @@ builder.Services
     {
         var catalog = context.Services!.GetRequiredService<ICapabilityCatalog>();
         return ValueTask.FromResult(McpToolCatalog.BuildListToolsResult(catalog.Discover()));
+    })
+    .WithCallToolHandler((context, _) =>
+    {
+        var toolName = context.Params!.Name;
+        if (McpToolInvoker.IsDeferred(toolName))
+        {
+            var deferredResult = new ModelContextProtocol.Protocol.CallToolResult
+            {
+                IsError = true,
+                Content = new List<ModelContextProtocol.Protocol.ContentBlock>
+                {
+                    new ModelContextProtocol.Protocol.TextContentBlock
+                    {
+                        Text = $"'{toolName}' is a recognized but deferred tool (Pre-Story S4 Review §2.2) - not yet invocable.",
+                    },
+                },
+            };
+            return ValueTask.FromResult(deferredResult);
+        }
+
+        var agent = context.Services!.GetRequiredService<IAgentExecutionInterface>();
+        var executionRequest = McpToolInvoker.BuildExecutionRequest(toolName, context.Params.Arguments);
+        var response = agent.Execute(executionRequest);
+        return ValueTask.FromResult(McpToolInvoker.BuildCallToolResult(response));
     });
 
 using var host = builder.Build();

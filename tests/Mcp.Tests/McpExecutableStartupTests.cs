@@ -178,4 +178,109 @@ public class McpExecutableStartupTests
             }
         }
     }
+
+    private static async Task InitializeAsync(Process process)
+    {
+        const string initializeRequest = """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"McpExecutableStartupTests","version":"1.0.0"}}}""";
+        await process.StandardInput.WriteLineAsync(initializeRequest);
+        await process.StandardInput.FlushAsync();
+        var initializeResponse = await ReadLineWithTimeoutAsync(process.StandardOutput, TimeSpan.FromSeconds(30));
+        Assert.NotNull(initializeResponse);
+
+        const string initializedNotification = """{"jsonrpc":"2.0","method":"notifications/initialized"}""";
+        await process.StandardInput.WriteLineAsync(initializedNotification);
+        await process.StandardInput.FlushAsync();
+    }
+
+    private static async Task<JsonDocument> CallToolAsync(Process process, string toolName, string argumentsJson = "{}")
+    {
+        var request = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"" + toolName + "\",\"arguments\":" + argumentsJson + "}}";
+        await process.StandardInput.WriteLineAsync(request);
+        await process.StandardInput.FlushAsync();
+
+        var response = await ReadLineWithTimeoutAsync(process.StandardOutput, TimeSpan.FromSeconds(30));
+        Assert.NotNull(response);
+        return JsonDocument.Parse(response);
+    }
+
+    // Epic M2-0001 Story S4: the Feature Lifecycle start-trigger tool
+    // declares no required payload keys, making it the simplest real,
+    // in-scope, end-to-end round trip to verify - fixed routing literal
+    // ("feature") -> real Runtime dispatch -> a well-formed CallToolResult.
+    [Fact]
+    public async Task McpExecutable_ToolsCall_ForInScopeTool_ReturnsWellFormedResult()
+    {
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            using var document = await CallToolAsync(process, "aef_start_feature_lifecycle");
+
+            Assert.True(document.RootElement.TryGetProperty("result", out var result));
+            Assert.True(result.TryGetProperty("content", out var content));
+            Assert.True(content.GetArrayLength() > 0);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    // Deferred tools (Pre-Story S4 Review §2.2) must produce a clear,
+    // honest "not yet invocable" result - never a crash, never a silent
+    // success, never indistinguishable from a genuinely unknown tool name.
+    [Fact]
+    public async Task McpExecutable_ToolsCall_ForDeferredTool_ReturnsIsErrorTrueWithClearMessage()
+    {
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            using var document = await CallToolAsync(process, "aef_review_specification");
+
+            Assert.True(document.RootElement.TryGetProperty("result", out var result));
+            Assert.True(result.GetProperty("isError").GetBoolean());
+            var text = result.GetProperty("content")[0].GetProperty("text").GetString();
+            Assert.Contains("deferred", text, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    // Open item from the Pre-Story S4 Review (§1/§4): the SDK's own
+    // unhandled-exception behavior for WithCallToolHandler was not
+    // documented anywhere found. Verified here directly against the real
+    // process, not assumed: calling a name never advertised via tools/list
+    // reaches McpToolInvoker.BuildExecutionRequest's own "not a Story S4
+    // in-scope tool" throw - the process must not crash, and the client
+    // must receive some well-formed response (a JSON-RPC error or an
+    // IsError result), not a hang or a dropped connection.
+    [Fact]
+    public async Task McpExecutable_ToolsCall_ForUnknownToolName_DoesNotCrashTheProcess()
+    {
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            using var document = await CallToolAsync(process, "not_a_real_tool");
+
+            Assert.False(process.HasExited);
+            Assert.True(document.RootElement.TryGetProperty("result", out _) || document.RootElement.TryGetProperty("error", out _));
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
 }
