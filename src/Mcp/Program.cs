@@ -19,6 +19,7 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using Runtime.Agent;
 using Runtime.Agent.Capabilities;
+using Runtime.Agent.Health;
 using Runtime.Agent.Security;
 using Runtime.Agent.Sessions;
 using Runtime.Ai;
@@ -189,7 +190,11 @@ builder.Services
         try
         {
             var catalog = context.Services!.GetRequiredService<ICapabilityCatalog>();
-            var listResult = McpToolCatalog.BuildListToolsResult(catalog.Discover());
+            var capabilityTools = McpToolCatalog.BuildListToolsResult(catalog.Discover()).Tools;
+            var listResult = new ModelContextProtocol.Protocol.ListToolsResult
+            {
+                Tools = capabilityTools.Concat(McpInfrastructureTools.Tools).ToList(),
+            };
             stopwatch.Stop();
             McpRequestMetrics.RecordRequest("tools/list", isError: false, stopwatch.Elapsed);
             return ValueTask.FromResult(listResult);
@@ -218,6 +223,16 @@ builder.Services
             if (denial is not null)
             {
                 callResult = denial;
+            }
+            else if (toolName == "aef_health")
+            {
+                var contributors = context.Services!.GetRequiredService<IEnumerable<IRuntimeHealthContributor>>();
+                var report = RuntimeHealthAggregator.Aggregate(contributors);
+                callResult = McpInfrastructureTools.BuildHealthResult(report);
+            }
+            else if (toolName == "aef_version")
+            {
+                callResult = McpInfrastructureTools.BuildVersionResult(typeof(McpInfrastructureTools).Assembly);
             }
             else if (McpToolInvoker.IsDeferred(toolName))
             {

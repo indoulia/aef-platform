@@ -160,7 +160,11 @@ public class McpExecutableStartupTests
             var actualTools = toolsElement.EnumerateArray()
                 .ToDictionary(tool => tool.GetProperty("name").GetString()!, tool => tool);
 
-            Assert.Equal(expectedCapabilities.Count, actualTools.Count);
+            // Story S7 adds 2 infrastructure tools (aef_health/aef_version)
+            // alongside the 11 capability-derived tools - updated here,
+            // not left broken, since this Story intentionally changes the
+            // total count this test already asserted.
+            Assert.Equal(expectedCapabilities.Count + 2, actualTools.Count);
 
             foreach (var capability in expectedCapabilities)
             {
@@ -169,6 +173,58 @@ public class McpExecutableStartupTests
                 Assert.Equal(capability.Description, actualTool.GetProperty("description").GetString());
                 Assert.True(actualTool.TryGetProperty("inputSchema", out _), $"Tool '{expectedName}' has no inputSchema.");
             }
+
+            Assert.True(actualTools.ContainsKey("aef_health"));
+            Assert.True(actualTools.ContainsKey("aef_version"));
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    // Epic M2-0001 Story S7: real subprocess round trips for aef_health/
+    // aef_version, mirroring RestAdapterEndpointExtensions' own Health()/
+    // Version() endpoints.
+    [Fact]
+    public async Task McpExecutable_ToolsCall_ForHealth_ReturnsAWellFormedNonErrorResult()
+    {
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            using var document = await CallToolAsync(process, "aef_health");
+
+            Assert.True(document.RootElement.TryGetProperty("result", out var result));
+            Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+            var text = result.GetProperty("content")[0].GetProperty("text").GetString();
+            Assert.Contains("Healthy", text, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task McpExecutable_ToolsCall_ForVersion_ReturnsANonEmptyVersionString()
+    {
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            using var document = await CallToolAsync(process, "aef_version");
+
+            Assert.True(document.RootElement.TryGetProperty("result", out var result));
+            Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+            var text = result.GetProperty("content")[0].GetProperty("text").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(text));
         }
         finally
         {
