@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AefPlatform.Mcp</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="8.0.0" />
+    <!-- Exact pin, no floating range - per the Pre-Story S2 Architecture
+         Decision Review (docs/06-history/2026-07-14-aef-m2-epic-m2-0001-
+         pre-s2-architecture-decision-review.md): 1.4.1 is the latest
+         stable release as of that Review. A 2.0.0-preview track already
+         exists in parallel with breaking protocol changes - do not widen
+         this to a floating range. -->
+    <PackageReference Include="ModelContextProtocol" Version="1.4.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Runtime\Runtime.csproj" />
+    <ProjectReference Include="..\Runtime.Ai\Runtime.Ai.csproj" />
+    <ProjectReference Include="..\Runtime.Agent\Runtime.Agent.csproj" />
+    <ProjectReference Include="..\Adapters.Mcp\Adapters.Mcp.csproj" />
+    <ProjectReference Include="..\Composition\AefPlatform.Composition.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
