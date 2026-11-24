@@ -18,7 +18,10 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
             throw new ArgumentException("command must not be null or empty.", nameof(command));
         }
 
-        var startInfo = new ProcessStartInfo(command)
+        // On Windows npm, yarn, pnpm and mvn are .cmd shims, which CreateProcess cannot launch directly.
+        var batchShim = ResolveWindowsBatchShim(command);
+
+        var startInfo = new ProcessStartInfo(batchShim is null ? command : "cmd.exe")
         {
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
@@ -28,6 +31,13 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
             // Never inherit the host's stdin: under the MCP stdio server that pipe hangs the child.
             RedirectStandardInput = true,
         };
+
+        if (batchShim is not null)
+        {
+            startInfo.ArgumentList.Add("/d");
+            startInfo.ArgumentList.Add("/c");
+            startInfo.ArgumentList.Add(batchShim);
+        }
 
         foreach (var argument in arguments)
         {
@@ -72,6 +82,41 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
 
             return new VerificationRunResult(process.ExitCode, standardOutput, standardError);
         }
+    }
+
+    // Returns the full path of <command>.cmd/.bat on PATH when no .exe/.com of that name precedes it; otherwise null.
+    private static string? ResolveWindowsBatchShim(string command)
+    {
+        if (!OperatingSystem.IsWindows() || Path.HasExtension(command) || command.IndexOfAny(new[] { '/', '\\' }) >= 0)
+        {
+            return null;
+        }
+
+        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            try
+            {
+                if (File.Exists(Path.Combine(directory, command + ".exe")) || File.Exists(Path.Combine(directory, command + ".com")))
+                {
+                    return null;
+                }
+
+                foreach (var extension in new[] { ".cmd", ".bat" })
+                {
+                    var candidate = Path.Combine(directory, command + extension);
+                    if (File.Exists(candidate))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+            catch (ArgumentException)
+            {
+                // A malformed PATH entry is skipped, not fatal.
+            }
+        }
+
+        return null;
     }
 
     private static void TryKill(Process process)

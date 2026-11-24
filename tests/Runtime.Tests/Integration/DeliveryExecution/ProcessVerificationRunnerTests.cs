@@ -42,6 +42,33 @@ public sealed class ProcessVerificationRunnerTests
     }
 
     [Fact]
+    public void WindowsBatchShimOnPath_LikeNpm_IsRunnable()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // npm is npm.cmd only on Windows; CreateProcess cannot launch a .cmd directly
+        }
+
+        var directory = Directory.CreateTempSubdirectory("aef-shim-").FullName;
+        var originalPath = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "aef-fake-npm.cmd"), "@echo shim ran %1\r\n@exit /b 3\r\n");
+            Environment.SetEnvironmentVariable("PATH", directory + Path.PathSeparator + originalPath);
+
+            var result = new ProcessVerificationRunner().Run(directory, "aef-fake-npm", new[] { "test" });
+
+            Assert.Equal(3, result.ExitCode);
+            Assert.Contains("shim ran test", result.StandardOutput);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", originalPath);
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void EmptyCommand_ThrowsArgumentException()
     {
         var runner = new ProcessVerificationRunner();
