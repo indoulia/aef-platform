@@ -23,6 +23,15 @@ public class BuildSystemDetectorTests
     }
 
     [Fact]
+    public void DetectDefaultValidationCommand_Gradle_ReturnsTheWrapperTest()
+    {
+        var command = BuildSystemDetector.DetectDefaultValidationCommand(new[] { "gradle" });
+
+        Assert.Equal("gradlew", command!.Value.Command);
+        Assert.Equal(new[] { "test" }, command.Value.Arguments);
+    }
+
+    [Fact]
     public void DetectDefaultValidationCommand_UnknownStack_ReturnsNull()
     {
         var result = BuildSystemDetector.DetectDefaultValidationCommand(new[] { "unknown-stack" });

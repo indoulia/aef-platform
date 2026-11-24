@@ -46,6 +46,17 @@ public sealed class StackDetectorTests : IDisposable
     private static string[] Names(TechnologyDetectionResult result) =>
         result.Technologies.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
 
+    // Real-repository sweep (marksy-os): a Gradle Kotlin-DSL project was reported as having no stack.
+    [Theory]
+    [InlineData("build.gradle.kts")]
+    [InlineData("settings.gradle.kts")]
+    public void GradleKotlinDslMarker_ReturnsDetectedWithGradle(string marker)
+    {
+        File.WriteAllText(Path.Combine(_root.FullName, marker), "// gradle");
+
+        Assert.Equal(new[] { "gradle" }, Names(StackDetector.DetectTechnologies(Scanner())));
+    }
+
     // Acceptance criterion 1: exactly one recognized stack's marker file ->
     // Detected, unambiguously, with a non-empty Basis.
     [Fact]

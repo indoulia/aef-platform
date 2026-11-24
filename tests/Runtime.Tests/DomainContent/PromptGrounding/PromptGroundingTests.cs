@@ -68,6 +68,25 @@ public class PromptGroundingTests : IDisposable
         Assert.Equal(new[] { expected }, PromptIdentifierExtractor.Extract(prompt));
     }
 
+    // Real-repository sweep (marksy-os): ".gitignore" named in a prompt was dropped because the leading dot was trimmed.
+    [Fact]
+    public void Extract_KeepsDotFilesAndDotDirectories()
+    {
+        Assert.Equal(
+            new[] { ".gitignore", ".github/workflows/ci.yml", ".env.example" },
+            PromptIdentifierExtractor.Extract("Update .gitignore, .github/workflows/ci.yml and .env.example."));
+    }
+
+    [Fact]
+    public void Execute_DotFileNamedInPromptExistsOnDisk_BecomesVerifiedFact()
+    {
+        File.WriteAllText(Path.Combine(_root, ".gitignore"), "bin/");
+
+        var brief = Execute(new FakeProvider(), "keep the QR out of the repo in .gitignore");
+
+        Assert.Contains(brief.VerifiedFacts, f => f.File == ".gitignore");
+    }
+
     [Fact]
     public void Extract_PlainSentence_ReturnsNothing()
     {

@@ -11,7 +11,13 @@ public static class PromptIdentifierExtractor
     private static readonly Regex Hump = new("[a-z0-9][A-Z]", RegexOptions.Compiled);
     private static readonly Regex Snake = new("[A-Za-z0-9]_[A-Za-z0-9]", RegexOptions.Compiled);
     private static readonly Regex IdentifierShape = new(@"^[A-Za-z_][\w.]*$", RegexOptions.Compiled);
+    private static readonly Regex DotFile = new(@"^\.[A-Za-z][\w-]+(\.[\w-]+)*$", RegexOptions.Compiled);
     private static readonly char[] Edge = { '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '"', '\'', '`', '<', '>' };
+
+    // A leading dot is part of the name (.gitignore, .github/...); a trailing one is punctuation.
+    private static readonly char[] LeadingEdge = Edge.Where(character => character != '.').ToArray();
+
+    private static string TrimEdges(string token) => token.TrimEnd(Edge).TrimStart(LeadingEdge);
 
     // Product names shaped like identifiers; naming one is not a claim about the repository.
     private static readonly HashSet<string> NotIdentifiers = new(StringComparer.OrdinalIgnoreCase)
@@ -27,7 +33,7 @@ public static class PromptIdentifierExtractor
 
         void Add(string candidate)
         {
-            var value = candidate.Trim().Trim(Edge);
+            var value = TrimEdges(candidate.Trim());
             if (value.Length > 1 && seen.Add(value))
             {
                 found.Add(value);
@@ -41,7 +47,7 @@ public static class PromptIdentifierExtractor
 
         foreach (var raw in Backticked.Replace(prompt, " ").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
         {
-            var token = raw.Trim(Edge);
+            var token = TrimEdges(raw);
             if (IsPath(token) || IsFileName(token) || IsCompoundIdentifier(token))
             {
                 Add(token);
@@ -103,7 +109,7 @@ public static class PromptIdentifierExtractor
     public static bool IsPath(string token) =>
         token.Length > 2 && (token.Contains('/') || token.Contains('\\')) && !token.Contains("://", StringComparison.Ordinal) && token.Any(char.IsLetterOrDigit);
 
-    public static bool IsFileName(string token) => FileName.IsMatch(token) && !IdentifierLooksLikeMemberAccess(token);
+    public static bool IsFileName(string token) => DotFile.IsMatch(token) || (FileName.IsMatch(token) && !IdentifierLooksLikeMemberAccess(token));
 
     private static bool IsCompoundIdentifier(string token) =>
         IdentifierShape.IsMatch(token) && !NotIdentifiers.Contains(token) && (Hump.IsMatch(token) || Snake.IsMatch(token));

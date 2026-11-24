@@ -69,6 +69,34 @@ public sealed class ProcessVerificationRunnerTests
     }
 
     [Fact]
+    public void RepositoryLocalWrapper_LikeGradlew_IsRunnableFromTheWorkingDirectory()
+    {
+        var directory = Directory.CreateTempSubdirectory("aef-wrapper-").FullName;
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                File.WriteAllText(Path.Combine(directory, "aef-fake-gradlew.bat"), "@echo wrapper ran %1\r\n@exit /b 0\r\n");
+            }
+            else
+            {
+                var script = Path.Combine(directory, "aef-fake-gradlew");
+                File.WriteAllText(script, "#!/bin/sh\necho wrapper ran $1\n");
+                File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+
+            var result = new ProcessVerificationRunner().Run(directory, "aef-fake-gradlew", new[] { "test" });
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains("wrapper ran test", result.StandardOutput);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void EmptyCommand_ThrowsArgumentException()
     {
         var runner = new ProcessVerificationRunner();

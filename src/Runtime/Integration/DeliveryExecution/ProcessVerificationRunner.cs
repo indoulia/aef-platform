@@ -19,9 +19,14 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
         }
 
         // On Windows npm, yarn, pnpm and mvn are .cmd shims, which CreateProcess cannot launch directly.
-        var batchShim = ResolveWindowsBatchShim(command);
+        var batchShim = ResolveWindowsBatchShim(command, workingDirectory);
 
-        var startInfo = new ProcessStartInfo(batchShim is null ? command : "cmd.exe")
+        // A repository-local wrapper (gradlew, mvnw) is not on PATH; run it from the working directory.
+        var localWrapper = batchShim is null && !OperatingSystem.IsWindows() && IsBareName(command) && File.Exists(Path.Combine(workingDirectory, command))
+            ? Path.Combine(workingDirectory, command)
+            : null;
+
+        var startInfo = new ProcessStartInfo(batchShim is not null ? "cmd.exe" : localWrapper ?? command)
         {
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
@@ -85,14 +90,18 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
     }
 
     // Returns the full path of <command>.cmd/.bat on PATH when no .exe/.com of that name precedes it; otherwise null.
-    private static string? ResolveWindowsBatchShim(string command)
+    private static bool IsBareName(string command) => !Path.HasExtension(command) && command.IndexOfAny(new[] { '/', '\\' }) < 0;
+
+    // The working directory is searched first so a repository-local wrapper (gradlew.bat, mvnw.cmd) is found.
+    private static string? ResolveWindowsBatchShim(string command, string workingDirectory)
     {
-        if (!OperatingSystem.IsWindows() || Path.HasExtension(command) || command.IndexOfAny(new[] { '/', '\\' }) >= 0)
+        if (!OperatingSystem.IsWindows() || !IsBareName(command))
         {
             return null;
         }
 
-        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        var searchPath = new[] { workingDirectory }.Concat((Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries));
+        foreach (var directory in searchPath)
         {
             try
             {

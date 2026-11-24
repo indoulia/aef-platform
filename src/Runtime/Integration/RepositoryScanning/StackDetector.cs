@@ -75,6 +75,7 @@ public static class StackDetector
             || name.Equals("requirements.txt", StringComparison.OrdinalIgnoreCase)
             || name.Equals("setup.py", StringComparison.OrdinalIgnoreCase)),
         ("java", name => name.Equals("pom.xml", StringComparison.OrdinalIgnoreCase) || name.Equals("build.gradle", StringComparison.OrdinalIgnoreCase)),
+        ("gradle", name => name.EndsWith(".gradle.kts", StringComparison.OrdinalIgnoreCase)),
         ("rust", name => name.Equals("Cargo.toml", StringComparison.OrdinalIgnoreCase)),
         ("go", name => name.Equals("go.mod", StringComparison.OrdinalIgnoreCase)),
     };
