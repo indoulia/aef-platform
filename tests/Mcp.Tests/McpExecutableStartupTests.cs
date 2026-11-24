@@ -285,6 +285,41 @@ public class McpExecutableStartupTests
         }
     }
 
+    private static string LocateRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (!File.Exists(Path.Combine(directory!.FullName, "AefPlatform.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        return directory.FullName;
+    }
+
+    // Story S8 sweep finding: git children inherited this server's stdin pipe and hung until timeout.
+    [Fact]
+    public async Task McpExecutable_ToolsCall_ForRepositoryTool_AgainstARealGitRepository_RespondsWithoutHanging()
+    {
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            var arguments = JsonSerializer.Serialize(new { RepositoryName = "aef-platform", RepositoryRoot = LocateRepositoryRoot() });
+            using var document = await CallToolAsync(process, "aef_analyze_repository", arguments);
+
+            var result = document.RootElement.GetProperty("result");
+            Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+            Assert.Contains("Completed via WFL-DEL-0008.", result.GetProperty("content")[0].GetProperty("text").GetString());
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
     // Deferred tools (Pre-Story S4 Review §2.2) must produce a clear,
     // honest "not yet invocable" result - never a crash, never a silent
     // success, never indistinguishable from a genuinely unknown tool name.

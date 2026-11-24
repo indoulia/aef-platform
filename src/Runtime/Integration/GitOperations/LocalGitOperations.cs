@@ -148,6 +148,8 @@ public sealed class LocalGitOperations : IGitOperations
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // Never inherit the host's stdin: under the MCP stdio server that pipe hangs the child.
+            RedirectStandardInput = true,
         };
 
         foreach (var argument in arguments)
@@ -157,6 +159,7 @@ public sealed class LocalGitOperations : IGitOperations
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start the 'git' process - is Git installed and on PATH?");
+        process.StandardInput.Close();
 
         // Reading one stream to completion before starting the other
         // deadlocks as soon as the un-drained stream fills its OS pipe

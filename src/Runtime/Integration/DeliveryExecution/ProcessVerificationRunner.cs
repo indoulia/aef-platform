@@ -25,6 +25,8 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // Never inherit the host's stdin: under the MCP stdio server that pipe hangs the child.
+            RedirectStandardInput = true,
         };
 
         foreach (var argument in arguments)
@@ -50,6 +52,8 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
 
         using (process)
         {
+            process.StandardInput.Close();
+
             // Reading one stream to completion before starting the other
             // deadlocks as soon as the un-drained stream fills its OS pipe
             // buffer - a real build/test command routinely produces large,
