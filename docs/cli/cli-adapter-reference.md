@@ -10,6 +10,17 @@ aef-cli execute --user-request <text> --project-profile-id <id> [--session-id <i
 
 Exit codes: `0` (`Completed`), `1` (`Failed`), `2` (`NeedsClarification`), `64` (usage error — missing/blank required flags or malformed `--payload-json`), `77` (security seam denied — never reached with the trusted-default evaluator), `70` (unexpected internal error, or a startup registry-validation failure).
 
+### Grounding capabilities
+
+The two grounding capabilities are reached with a fixed `--user-request` and their arguments in `--payload-json`. Text output prints the full brief or report; JSON output carries it in `evidence.document`.
+
+```
+aef-cli execute --user-request "refine prompt" --project-profile-id p --payload-json "{\"UserPrompt\":\"add retries to OrderService\",\"RepositoryName\":\"shop\",\"RepositoryRoot\":\"C:/src/shop\"}"
+aef-cli execute --user-request "check change" --project-profile-id p --payload-json "{\"RepositoryName\":\"shop\",\"RepositoryRoot\":\"C:/src/shop\",\"SkipBuildAndTests\":\"true\"}"
+```
+
+Arguments and output are described in `docs/mcp/mcp-adapter-reference.md`.
+
 ## `capabilities`
 
 ```
