@@ -29,7 +29,8 @@ public sealed class AiProviderOptions
     // Uses the locally installed, signed-in claude CLI; no key or endpoint.
     public sealed class ClaudeCliSection
     {
-        public string Model { get; set; } = "haiku";
+        // The smallest model returned malformed JSON for a 9.6K-character review in real-provider dogfooding.
+        public string Model { get; set; } = "sonnet";
     }
 
     public sealed class OpenAiSection

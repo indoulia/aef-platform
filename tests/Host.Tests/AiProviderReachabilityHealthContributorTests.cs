@@ -40,7 +40,7 @@ public class AiProviderReachabilityHealthContributorTests
             options, new System.ComponentModel.DataAnnotations.ValidationContext(options), null, validateAllProperties: true);
 
         Assert.Equal(expectedValid, valid);
-        Assert.Equal("haiku", options.ClaudeCli.Model);
+        Assert.Equal("sonnet", options.ClaudeCli.Model);
     }
 
     [Fact]
