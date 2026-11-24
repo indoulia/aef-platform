@@ -88,6 +88,7 @@ builder.Services.AddSingleton<IAiProvider>(sp =>
     var httpClient = sp.GetRequiredService<HttpClient>();
     return options.Provider switch
     {
+        "ClaudeCli" => new ClaudeCliProvider(options.ClaudeCli.Model),
         "AzureOpenAI" => new AzureOpenAiProvider(httpClient, new AzureOpenAiProviderOptions
         {
             Endpoint = options.AzureOpenAi!.Endpoint,

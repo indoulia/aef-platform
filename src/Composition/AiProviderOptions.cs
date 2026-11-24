@@ -15,7 +15,7 @@ namespace AefPlatform.Host;
 public sealed class AiProviderOptions
 {
     [Required]
-    [RegularExpression("OpenAI|AzureOpenAI")]
+    [RegularExpression("OpenAI|AzureOpenAI|ClaudeCli")]
     public string Provider { get; set; } = "OpenAI";
 
     public int TimeoutSeconds { get; set; } = 60;
@@ -23,6 +23,14 @@ public sealed class AiProviderOptions
     public OpenAiSection? OpenAi { get; set; }
 
     public AzureOpenAiSection? AzureOpenAi { get; set; }
+
+    public ClaudeCliSection ClaudeCli { get; set; } = new();
+
+    // Uses the locally installed, signed-in claude CLI; no key or endpoint.
+    public sealed class ClaudeCliSection
+    {
+        public string Model { get; set; } = "haiku";
+    }
 
     public sealed class OpenAiSection
     {

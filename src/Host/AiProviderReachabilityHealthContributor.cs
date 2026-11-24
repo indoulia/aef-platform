@@ -16,15 +16,61 @@ public sealed class AiProviderReachabilityHealthContributor : IRuntimeHealthCont
     private readonly HttpClient _httpClient;
     private readonly IOptions<AiProviderOptions> _options;
 
-    public AiProviderReachabilityHealthContributor(HttpClient httpClient, IOptions<AiProviderOptions> options)
+    private readonly Func<bool> _claudeCliRunnable;
+
+    public AiProviderReachabilityHealthContributor(HttpClient httpClient, IOptions<AiProviderOptions> options, Func<bool>? claudeCliRunnable = null)
     {
         _httpClient = httpClient;
         _options = options;
+        _claudeCliRunnable = claudeCliRunnable ?? ClaudeCliRunsVersion;
+    }
+
+    private static bool ClaudeCliRunsVersion()
+    {
+        try
+        {
+            var startInfo = new System.Diagnostics.ProcessStartInfo("claude")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            startInfo.ArgumentList.Add("--version");
+            using var process = System.Diagnostics.Process.Start(startInfo);
+            if (process is null)
+            {
+                return false;
+            }
+
+            process.StandardInput.Close();
+            _ = process.StandardOutput.ReadToEndAsync();
+            _ = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(5000))
+            {
+                process.Kill(entireProcessTree: true);
+                return false;
+            }
+
+            return process.ExitCode == 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     public RuntimeHealthReport Check()
     {
         var options = _options.Value;
+        if (options.Provider == "ClaudeCli")
+        {
+            return _claudeCliRunnable()
+                ? new RuntimeHealthReport("AiProviderReachability", RuntimeHealthStatus.Healthy, null)
+                : new RuntimeHealthReport("AiProviderReachability", RuntimeHealthStatus.Unhealthy, "The claude CLI could not be run - is it installed and on PATH?");
+        }
+
         var baseUrl = options.Provider == "AzureOpenAI"
             ? options.AzureOpenAi?.Endpoint
             : options.OpenAi?.BaseUrl;
