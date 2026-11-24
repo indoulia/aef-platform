@@ -139,4 +139,42 @@ public class McpToolInvokerTests
         var text = Assert.IsType<ModelContextProtocol.Protocol.TextContentBlock>(Assert.Single(result.Content));
         Assert.Equal("Here is the result.", text.Text);
     }
+
+    private static ExecutionResponse Response(ExecutionStatus status, string? presented, ExecutionEvidence evidence, ExecutionError? error = null) =>
+        new("req-1", null, status, error, presented, null, evidence,
+            new ExecutionMetadata(null, null, TimeSpan.Zero, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+
+    private static string TextOf(ModelContextProtocol.Protocol.CallToolResult result) =>
+        Assert.IsType<ModelContextProtocol.Protocol.TextContentBlock>(Assert.Single(result.Content)).Text;
+
+    [Fact]
+    public void BuildCallToolResult_WithDocument_ReturnsPresentedResultThenDocument()
+    {
+        var evidence = new ExecutionEvidence(new[] { "an open question" }, new[] { "a check" }, null, null, null, Document: "# Brief\nbody");
+
+        var result = McpToolInvoker.BuildCallToolResult(Response(ExecutionStatus.Completed, "Completed via PROMPT-GROUNDING.", evidence));
+
+        Assert.Equal("Completed via PROMPT-GROUNDING.\n\n# Brief\nbody", TextOf(result));
+    }
+
+    [Fact]
+    public void BuildCallToolResult_WithoutDocument_AppendsDiagnosticsAndValidationResults()
+    {
+        var evidence = new ExecutionEvidence(new[] { "[Pass] Test Convention: found" }, new[] { "answer" }, null, null, null);
+
+        var result = McpToolInvoker.BuildCallToolResult(Response(ExecutionStatus.Completed, "Completed via WFL-DEL-0008.", evidence));
+
+        Assert.Equal("Completed via WFL-DEL-0008.\n\nFindings:\n- [Pass] Test Convention: found\n\nResults:\n- answer", TextOf(result));
+    }
+
+    [Fact]
+    public void BuildCallToolResult_Failed_ReturnsReasonThenDiagnostics_IsErrorTrue()
+    {
+        var evidence = new ExecutionEvidence(new[] { "npm is not installed" }, null, null, null, null);
+
+        var result = McpToolInvoker.BuildCallToolResult(Response(ExecutionStatus.Failed, null, evidence, new ExecutionError("Execution failed.", Array.Empty<string>())));
+
+        Assert.True(result.IsError);
+        Assert.Equal("Execution failed.\n\nFindings:\n- npm is not installed", TextOf(result));
+    }
 }

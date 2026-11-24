@@ -85,12 +85,27 @@ public static class McpToolInvoker
         return new ExecutionRequest(Guid.NewGuid().ToString("N"), sessionId, spec.RoutingLiteral, projectProfileId, payload);
     }
 
+    private static string Section(string heading, IReadOnlyList<string>? lines) =>
+        lines is null || lines.Count == 0 ? string.Empty : $"\n\n{heading}:\n" + string.Join("\n", lines.Select(line => "- " + line));
+
     public static CallToolResult BuildCallToolResult(ExecutionResponse response)
     {
         var isError = response.Status == ExecutionStatus.Failed;
         var text = isError
             ? response.Error?.Reason ?? "Execution failed."
             : response.PresentedResult ?? response.SuggestedNextStep ?? "Execution completed.";
+
+        // The handoff text alone ("Completed via ...") tells a calling agent nothing; append the evidence.
+        var evidence = response.Evidence;
+        if (!string.IsNullOrEmpty(evidence.Document))
+        {
+            text += "\n\n" + evidence.Document;
+        }
+        else
+        {
+            text += Section("Findings", evidence.Diagnostics);
+            text += Section("Results", evidence.ValidationResults);
+        }
 
         return new CallToolResult
         {

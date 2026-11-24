@@ -15,4 +15,5 @@ public sealed record ExecutionResult(
     string? RepositoryAnalyzed = null,
     IReadOnlyList<string>? FilesChanged = null,
     bool? TestsExecuted = null,
-    ExecutionResultKind Kind = ExecutionResultKind.Unspecified);
+    ExecutionResultKind Kind = ExecutionResultKind.Unspecified,
+    string? Document = null);
