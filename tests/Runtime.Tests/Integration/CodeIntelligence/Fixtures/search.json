@@ -1,0 +1,8 @@
+﻿{
+  "content": [
+    {
+      "type": "text",
+      "text": "[\n  {\n    \"id\": \"class:c9531ca67cf9cfccf569639c5b6bd1ad\",\n    \"name\": \"McpToolInvoker\",\n    \"kind\": \"class\",\n    \"file\": \"src/Adapters.Mcp/McpToolInvoker.cs\",\n    \"line\": 25,\n    \"signature\": \"public static class McpToolInvoker\",\n    \"score\": 27.741373703302983\n  },\n  {\n    \"id\": \"method:0e127230097846ef6eed70cc1ff3a58c\",\n    \"name\": \"BuildCallToolResult\",\n    \"kind\": \"method\",\n    \"file\": \"src/Adapters.Mcp/McpToolInvoker.cs\",\n    \"line\": 87,\n    \"signature\": \"public static CallToolResult BuildCallToolResult(ExecutionResponse response)\",\n    \"score\": 15.43383716660157\n  },\n  {\n    \"id\": \"method:bb80370408aa0e6f2c4d0abec55bff91\",\n    \"name\": \"IsDeferred\",\n    \"kind\": \"method\",\n    \"file\": \"src/Adapters.Mcp/McpToolInvoker.cs\",\n    \"line\": 55,\n    \"signature\": \"public static bool IsDeferred(string toolName) => DeferredTools.Contains(toolName)\",\n    \"score\": 15.339504304094172\n  }\n]"
+    }
+  ]
+}

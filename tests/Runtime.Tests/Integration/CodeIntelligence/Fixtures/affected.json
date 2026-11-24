@@ -1,0 +1,8 @@
+﻿{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\n  \"changed_files\": [\n    \"src/Adapters.Mcp/McpToolInvoker.cs\"\n  ],\n  \"affected_tests\": [\n    \"tests/Adapters.Mcp.Tests/McpToolInvokerTests.cs\"\n  ],\n  \"count\": 1\n}"
+    }
+  ]
+}
