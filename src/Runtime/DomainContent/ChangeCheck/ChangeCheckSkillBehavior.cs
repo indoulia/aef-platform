@@ -85,15 +85,21 @@ public sealed class ChangeCheckSkillBehavior : IBehavior
             detail = entry.Passed ? "Exit code 0." : $"Exit code {entry.ExitCode}: {Excerpt(entry.StandardErrorExcerpt, entry.StandardOutputExcerpt)}";
         }
 
+        // The command validation actually ran, derived exactly as RepositoryValidationSkillBehavior derives it.
+        var stackNames = request.Repository.TechnologyProfile?.Technologies.Select(technology => technology.Name).ToList() ?? new List<string>();
+        var ranCommand = RepositoryValidation.BuildSystemDetector.DetectDefaultValidationCommand(stackNames) is { } command
+            ? (command.Command + " " + string.Join(' ', command.Arguments)).Trim()
+            : null;
+
         var checks = request.AcceptanceChecks
             .Where(check => !string.IsNullOrWhiteSpace(check))
-            .Select(check => Evaluate(check.Trim(), files, expected.Count, outside, passed, detail, request.Validation is null))
+            .Select(check => Evaluate(check.Trim(), files, expected.Count, outside, passed, detail, request.Validation is null, ranCommand))
             .ToList();
 
         return new ChangeCheckReport(files, outside, affected, passed, detail, checks, notes);
     }
 
-    private static AcceptanceCheckResult Evaluate(string check, IReadOnlyList<string> files, int expectedCount, IReadOnlyList<string> outside, bool? passed, string? detail, bool validationNotRun)
+    private static AcceptanceCheckResult Evaluate(string check, IReadOnlyList<string> files, int expectedCount, IReadOnlyList<string> outside, bool? passed, string? detail, bool validationNotRun, string? ranCommand)
     {
         if (files.Count == 0)
         {
@@ -110,6 +116,18 @@ public sealed class ChangeCheckSkillBehavior : IBehavior
             return outside.Count == 0
                 ? new AcceptanceCheckResult(check, Met, "Every changed file is in the expected set.")
                 : new AcceptanceCheckResult(check, NotMet, $"Changed outside the expected set: {string.Join(", ", outside)}. Explain or revert each.");
+        }
+
+        if (CommandCheck.IsMatch(check))
+        {
+            // Only the command that was actually run can be reported on; another command's result is unknown.
+            var asked = check[1..check.LastIndexOf('`')].Trim();
+            if (!string.Equals(asked, ranCommand, StringComparison.OrdinalIgnoreCase))
+            {
+                return new AcceptanceCheckResult(check, CannotTell, ranCommand is null
+                    ? "No build or test command is known for this repository, so this command was not run."
+                    : $"This command was not run; the command run was `{ranCommand}`.");
+            }
         }
 
         if (CommandCheck.IsMatch(check) || TestsCheck.IsMatch(check))

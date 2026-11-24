@@ -547,6 +547,8 @@ public class EngineeringExecutionPipelineTests
         var root = InitDotnetGitRepository();
         try
         {
+            Directory.CreateDirectory(Path.Combine(root, "src"));
+            File.WriteAllText(Path.Combine(root, "src", "OrderService.cs"), "class OrderService {}");
             var payload = new Dictionary<string, object> { ["RepositoryName"] = "test-repo", ["RepositoryRoot"] = root, ["UserPrompt"] = "Add retries to OrderService and PaymentGateway" };
 
             var result = GroundingPipeline().Execute(new EngineeringRequest("refine prompt", "default-profile", payload));

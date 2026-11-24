@@ -180,7 +180,9 @@ public sealed class LocalGitOperations : IGitOperations
                 }
             }
 
-            var tracked = RunGit("-c", "core.quotepath=off", "diff", "--name-only", baseCommit);
+            // --relative: when the root is a subdirectory of the repository, report that directory only, relative
+            // to it - the same base "ls-files --others" uses below.
+            var tracked = RunGit("-c", "core.quotepath=off", "diff", "--name-only", "--relative", baseCommit);
             if (tracked.ExitCode != 0)
             {
                 return GitChangedFilesResult.Failed($"git diff failed: {tracked.StandardError.Trim()}");
@@ -235,6 +237,9 @@ public sealed class LocalGitOperations : IGitOperations
             RedirectStandardError = true,
             // Never inherit the host's stdin: under the MCP stdio server that pipe hangs the child.
             RedirectStandardInput = true,
+            // git writes UTF-8; the default would decode it with the console code page and mangle non-ASCII paths.
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+            StandardErrorEncoding = System.Text.Encoding.UTF8,
         };
 
         foreach (var argument in arguments)

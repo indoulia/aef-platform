@@ -101,6 +101,9 @@ public sealed class ClaudeCliProvider : IAiProvider
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardInput = true,
+            StandardInputEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+            StandardErrorEncoding = System.Text.Encoding.UTF8,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };

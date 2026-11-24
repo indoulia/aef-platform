@@ -27,7 +27,18 @@ public class ChangeCheckTests
             : CodeLookupResult.Unavailable("tokensave is not installed or not on PATH.");
     }
 
-    private static readonly RepositoryExecutionContext Repository = new("C:/repo", "repo", true, true, "feature/x", false, null);
+    private static readonly RepositoryExecutionContext Repository = new("C:/repo", "repo", true, true, "feature/x", false,
+        new Runtime.DomainContent.Onboarding.TechnologyProfileDraft("TPR-CTX-1", new[] { new Runtime.Integration.RepositoryScanning.TechnologyEvidence("dotnet", "app.csproj") }));
+
+    // Final review finding 5: a check naming a command that was never run must not be marked met.
+    [Fact]
+    public void Execute_CommandCheckNamingADifferentCommandThanTheOneRun_IsCannotTell()
+    {
+        var check = Assert.Single(Execute(Changed("src/A.cs"), Validation(0), new[] { "`npm run lint` exits 0" }).Checks);
+
+        Assert.Equal("cannot tell", check.Status);
+        Assert.Contains("`dotnet test`", check.Evidence);
+    }
 
     private static ValidationOutcome Validation(int exitCode) =>
         ValidationOutcome.Recorded(new TestPlanAndResultsEntry("repo", exitCode == 0, exitCode, "out", exitCode == 0 ? string.Empty : "1 test failed"));

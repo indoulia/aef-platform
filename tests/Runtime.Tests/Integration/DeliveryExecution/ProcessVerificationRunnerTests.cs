@@ -71,24 +71,40 @@ public sealed class ProcessVerificationRunnerTests
     [Fact]
     public void RepositoryLocalWrapper_LikeGradlew_IsRunnableFromTheWorkingDirectory()
     {
-        var directory = Directory.CreateTempSubdirectory("aef-wrapper-").FullName;
+        var directory = Directory.CreateTempSubdirectory("aef-R&D-wrapper-").FullName;
         try
         {
             if (OperatingSystem.IsWindows())
             {
-                File.WriteAllText(Path.Combine(directory, "aef-fake-gradlew.bat"), "@echo wrapper ran %1\r\n@exit /b 0\r\n");
+                File.WriteAllText(Path.Combine(directory, "gradlew.bat"), "@echo wrapper ran %1\r\n@exit /b 0\r\n");
             }
             else
             {
-                var script = Path.Combine(directory, "aef-fake-gradlew");
+                var script = Path.Combine(directory, "gradlew");
                 File.WriteAllText(script, "#!/bin/sh\necho wrapper ran $1\n");
                 File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             }
 
-            var result = new ProcessVerificationRunner().Run(directory, "aef-fake-gradlew", new[] { "test" });
+            var result = new ProcessVerificationRunner().Run(directory, "gradlew", new[] { "test" });
 
             Assert.Equal(0, result.ExitCode);
             Assert.Contains("wrapper ran test", result.StandardOutput);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ToolThatIsNotAKnownWrapper_IsNotPickedUpFromTheWorkingDirectory()
+    {
+        var directory = Directory.CreateTempSubdirectory("aef-shadow-").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, OperatingSystem.IsWindows() ? "aef-no-such-tool.cmd" : "aef-no-such-tool"), "@echo shadowed");
+
+            Assert.Throws<InvalidOperationException>(() => new ProcessVerificationRunner().Run(directory, "aef-no-such-tool", new[] { "test" }));
         }
         finally
         {

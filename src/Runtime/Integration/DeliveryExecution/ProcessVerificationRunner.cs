@@ -18,16 +18,19 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
             throw new ArgumentException("command must not be null or empty.", nameof(command));
         }
 
-        // On Windows npm, yarn, pnpm and mvn are .cmd shims, which CreateProcess cannot launch directly.
+        // On Windows npm, yarn, pnpm and mvn are .cmd shims. A bare name cannot be launched, but the shim's full
+        // path can - and passing it as the program, not through "cmd /c", keeps a path containing '&' intact.
         var batchShim = ResolveWindowsBatchShim(command, workingDirectory);
 
         // A repository-local wrapper (gradlew, mvnw) is not on PATH; run it from the working directory.
-        var localWrapper = batchShim is null && !OperatingSystem.IsWindows() && IsBareName(command) && File.Exists(Path.Combine(workingDirectory, command))
+        var localWrapper = batchShim is null && !OperatingSystem.IsWindows() && IsRepositoryWrapper(command) && File.Exists(Path.Combine(workingDirectory, command))
             ? Path.Combine(workingDirectory, command)
             : null;
 
-        var startInfo = new ProcessStartInfo(batchShim is not null ? "cmd.exe" : localWrapper ?? command)
+        var startInfo = new ProcessStartInfo(batchShim ?? localWrapper ?? command)
         {
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+            StandardErrorEncoding = System.Text.Encoding.UTF8,
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -36,13 +39,6 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
             // Never inherit the host's stdin: under the MCP stdio server that pipe hangs the child.
             RedirectStandardInput = true,
         };
-
-        if (batchShim is not null)
-        {
-            startInfo.ArgumentList.Add("/d");
-            startInfo.ArgumentList.Add("/c");
-            startInfo.ArgumentList.Add(batchShim);
-        }
 
         foreach (var argument in arguments)
         {
@@ -90,6 +86,9 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
     }
 
     // Returns the full path of <command>.cmd/.bat on PATH when no .exe/.com of that name precedes it; otherwise null.
+    private static bool IsRepositoryWrapper(string command) =>
+        string.Equals(command, "gradlew", StringComparison.OrdinalIgnoreCase) || string.Equals(command, "mvnw", StringComparison.OrdinalIgnoreCase);
+
     private static bool IsBareName(string command) => !Path.HasExtension(command) && command.IndexOfAny(new[] { '/', '\\' }) < 0;
 
     // The working directory is searched first so a repository-local wrapper (gradlew.bat, mvnw.cmd) is found.
@@ -100,7 +99,9 @@ public sealed class ProcessVerificationRunner : IVerificationRunner
             return null;
         }
 
-        var searchPath = new[] { workingDirectory }.Concat((Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries));
+        // Only a known wrapper is taken from the repository; a repo-root npm.cmd or dotnet.cmd must not shadow the real tool.
+        var path = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        var searchPath = IsRepositoryWrapper(command) ? new[] { workingDirectory }.Concat(path) : path;
         foreach (var directory in searchPath)
         {
             try

@@ -7,12 +7,14 @@ namespace Runtime.DomainContent.PromptGrounding;
 
 // Turns a loose prompt into a brief a coding agent can act on without guessing. Deterministic and read-only:
 // every Verified fact carries the file that proves it; anything unproven is an Assumption or an Open question.
+// A location is "confirmed" only when the prompt names it and it resolves to exactly one place on disk.
 public sealed class PromptGroundingSkillBehavior : IBehavior
 {
     public const int MaxWhereToWork = 12;
     private const int MaxTestFiles = 3;
     private const int MaxIdentifiers = 15;
     private const int MaxFileSearchEntries = 20000;
+    private const int MaxFileMatches = 5;
 
     private static readonly HashSet<string> IgnoredDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -26,6 +28,32 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
         _provider = provider;
     }
 
+    // Stops asking after the first Unavailable answer: one hung or missing tool must cost one timeout, not twenty.
+    private sealed class Guarded
+    {
+        private readonly ICodeIntelligenceProvider _inner;
+
+        public Guarded(ICodeIntelligenceProvider inner) => _inner = inner;
+
+        public string? UnavailableReason { get; private set; }
+
+        public CodeLookupResult Ask(Func<ICodeIntelligenceProvider, CodeLookupResult> call)
+        {
+            if (UnavailableReason is not null)
+            {
+                return CodeLookupResult.Unavailable(UnavailableReason);
+            }
+
+            var result = call(_inner);
+            if (!result.Available)
+            {
+                UnavailableReason = result.UnavailableReason ?? "no reason given";
+            }
+
+            return result;
+        }
+    }
+
     public object? Execute(RuntimeExecutionContext context)
     {
         if (!context.Tier3SkillContent.TryGetValue("PromptGroundingRequest", out var raw) || raw is not PromptGroundingRequest request)
@@ -34,58 +62,26 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
         }
 
         var root = request.Repository.RepositoryRoot;
+        var provider = new Guarded(_provider);
         var facts = new List<EvidencedFact>();
         var assumptions = new List<string>();
         var questions = new List<string>();
         var named = new List<CodeReference>();
-        string? unavailableReason = null;
 
         var identifiers = PromptIdentifierExtractor.Extract(request.UserPrompt).Take(MaxIdentifiers).ToList();
         foreach (var identifier in identifiers)
         {
             if (PromptIdentifierExtractor.IsPath(identifier) || PromptIdentifierExtractor.IsFileName(identifier))
             {
-                var located = LocateFile(root, identifier);
-                if (located is null)
-                {
-                    questions.Add(NotFound(identifier, Array.Empty<CodeReference>()));
-                }
-                else
-                {
-                    facts.Add(new EvidencedFact($"`{identifier}` exists", located, null, "filesystem"));
-                    named.Add(new CodeReference(Path.GetFileName(located), "file", located, 0, null, "filesystem"));
-                }
-
-                continue;
+                GroundFile(root, identifier, facts, assumptions, questions, named);
             }
-
-            var lookup = LookUpSymbol(root, identifier);
-            if (!lookup.Available)
+            else
             {
-                unavailableReason ??= lookup.UnavailableReason;
-                assumptions.Add($"`{identifier}` is named in the prompt but could not be checked against the repository.");
-                continue;
-            }
-
-            var exact = lookup.References.Where(reference => NameMatches(reference.Name, identifier)).ToList();
-            if (exact.Count == 0)
-            {
-                questions.Add(NotFound(identifier, lookup.References));
-                continue;
-            }
-
-            foreach (var reference in exact.Take(3))
-            {
-                facts.Add(new EvidencedFact($"`{reference.Name}` is a {reference.Kind}", reference.File, reference.Line, reference.Source));
-                named.Add(reference);
+                GroundSymbol(root, identifier, provider, facts, assumptions, questions, named);
             }
         }
 
-        var relevant = _provider.FindRelevant(root, request.UserPrompt, MaxWhereToWork * 2);
-        if (!relevant.Available)
-        {
-            unavailableReason ??= relevant.UnavailableReason;
-        }
+        var relevant = provider.Ask(p => p.FindRelevant(root, request.UserPrompt, MaxWhereToWork * 2));
 
         // Rank by how many distinct prompt terms point at a file. One loose match is a lead, not a location.
         var matchedTerms = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
@@ -107,14 +103,7 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
 
         foreach (var term in PromptIdentifierExtractor.ExtractSearchTerms(request.UserPrompt))
         {
-            var hits = _provider.FindSymbol(root, term, 10);
-            if (!hits.Available)
-            {
-                unavailableReason ??= hits.UnavailableReason;
-                continue;
-            }
-
-            foreach (var reference in hits.References)
+            foreach (var reference in provider.Ask(p => p.FindSymbol(root, term, 10)).References)
             {
                 Credit(reference, term);
                 searchHits.Add(reference);
@@ -122,6 +111,7 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
         }
 
         var namedFiles = new HashSet<string>(named.Select(reference => reference.File), StringComparer.OrdinalIgnoreCase);
+
         // A distinctive term found by name is stronger evidence than a loose natural-language match.
         double Score(CodeReference reference) => namedFiles.Contains(reference.File)
             ? double.MaxValue
@@ -152,11 +142,7 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
                 break;
             }
 
-            var tests = _provider.FindTests(root, file);
-            if (tests.Available)
-            {
-                testFiles.AddRange(tests.References.Select(reference => reference.File));
-            }
+            testFiles.AddRange(provider.Ask(p => p.FindTests(root, file)).References.Select(reference => reference.File));
         }
 
         testFiles = testFiles.Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxTestFiles).ToList();
@@ -164,8 +150,7 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
         var technologies = request.Repository.TechnologyProfile?.Technologies ?? Array.Empty<Integration.RepositoryScanning.TechnologyEvidence>();
         foreach (var technology in technologies)
         {
-            var evidenceFile = EvidenceFile(root, technology.Basis);
-            if (evidenceFile is not null)
+            if (ExistingFile(root, technology.Basis) is { } evidenceFile)
             {
                 facts.Add(new EvidencedFact($"Detected stack: {technology.Name}", evidenceFile, null, "stack-detector"));
             }
@@ -177,21 +162,16 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
 
         var command = BuildSystemDetector.DetectDefaultValidationCommand(technologies.Select(technology => technology.Name).ToList());
         var commandText = command is null ? null : (command.Value.Command + " " + string.Join(' ', command.Value.Arguments)).Trim();
-        if (commandText is null)
+        assumptions.Add(commandText is null
+            ? "No build or test command could be detected for this repository."
+            : $"`{commandText}` is the conventional command for the detected stack; the repository may define its own.");
+
+        if (provider.UnavailableReason is not null)
         {
-            assumptions.Add("No build or test command could be detected for this repository.");
-        }
-        else
-        {
-            assumptions.Add($"`{commandText}` is the conventional command for the detected stack; the repository may define its own.");
+            assumptions.Insert(0, $"Code intelligence unavailable: {provider.UnavailableReason.TrimEnd('.')}. File and symbol locations below were not verified.");
         }
 
-        if (unavailableReason is not null)
-        {
-            assumptions.Insert(0, $"Code intelligence unavailable: {unavailableReason.TrimEnd('.')}. File and symbol locations below were not verified.");
-        }
-
-        if (unavailableReason is null && identifiers.Count == 0 && candidates.Count == 0)
+        if (provider.UnavailableReason is null && identifiers.Count == 0 && candidates.Count == 0)
         {
             questions.Add("The prompt does not name a file, symbol or feature that could be located. What part of the repository is this about?");
         }
@@ -223,29 +203,77 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
             strongFiles);
     }
 
-    private CodeLookupResult LookUpSymbol(string root, string identifier)
+    private static void GroundFile(string root, string identifier, List<EvidencedFact> facts, List<string> assumptions, List<string> questions, List<CodeReference> named)
+    {
+        var (matches, searchedEverything) = LocateFiles(root, identifier);
+        if (matches.Count == 1)
+        {
+            facts.Add(new EvidencedFact($"`{identifier}` exists", matches[0], null, "filesystem"));
+            named.Add(new CodeReference(Path.GetFileName(matches[0]), "file", matches[0], 0, null, "filesystem"));
+        }
+        else if (matches.Count > 1)
+        {
+            questions.Add($"The prompt mentions `{identifier}`, which matches several files: {string.Join(", ", matches)}. Which did you mean?");
+        }
+        else if (!searchedEverything)
+        {
+            assumptions.Add($"`{identifier}` is named in the prompt but the repository could not be fully searched for it.");
+        }
+        else if (PromptIdentifierExtractor.IsDeliberateFileReference(identifier))
+        {
+            questions.Add(NotFound(identifier, Array.Empty<CodeReference>()));
+        }
+    }
+
+    private static void GroundSymbol(string root, string identifier, Guarded provider, List<EvidencedFact> facts, List<string> assumptions, List<string> questions, List<CodeReference> named)
     {
         // "OrderService.Submit" is indexed under its member and its type, not the dotted form.
         var parts = identifier.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        var names = parts.Length > 1 ? new[] { parts[^1], parts[0] } : new[] { identifier };
-
-        var all = new List<CodeReference>();
-        foreach (var name in names)
+        var memberName = parts[^1];
+        var memberLookup = provider.Ask(p => p.FindSymbol(root, memberName, 10));
+        var typeLookup = parts.Length > 1 ? provider.Ask(p => p.FindSymbol(root, parts[0], 10)) : null;
+        if (!memberLookup.Available || typeLookup is { Available: false })
         {
-            var result = _provider.FindSymbol(root, name, 5);
-            if (!result.Available)
-            {
-                return result;
-            }
-
-            all.AddRange(result.References);
+            assumptions.Add($"`{identifier}` is named in the prompt but could not be checked against the repository.");
+            return;
         }
 
-        return CodeLookupResult.Found(all);
-    }
+        static bool Named(CodeReference reference, string name) => string.Equals(reference.Name, name, StringComparison.OrdinalIgnoreCase);
+        var exact = memberLookup.References.Where(reference => Named(reference, memberName)).ToList();
+        var closest = memberLookup.References.Concat(typeLookup?.References ?? Array.Empty<CodeReference>()).ToList();
 
-    private static bool NameMatches(string referenceName, string identifier) =>
-        identifier.Split('.', StringSplitOptions.RemoveEmptyEntries).Any(part => string.Equals(part, referenceName, StringComparison.OrdinalIgnoreCase));
+        if (typeLookup is not null)
+        {
+            // The member counts only where its type is defined too; a same-named member elsewhere proves nothing.
+            var typeFiles = new HashSet<string>(typeLookup.References.Where(reference => Named(reference, parts[0])).Select(reference => reference.File), StringComparer.OrdinalIgnoreCase);
+            exact = exact.Where(reference => typeFiles.Contains(reference.File)).ToList();
+        }
+
+        var onDisk = exact.Where(reference => ExistingFile(root, reference.File) is not null).ToList();
+        foreach (var stale in exact.Except(onDisk))
+        {
+            assumptions.Add($"`{identifier}` was found by the index at {stale.File}:{stale.Line}, but that file is not on disk - the index may be stale.");
+        }
+
+        var files = onDisk.Select(reference => reference.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (files.Count == 1)
+        {
+            foreach (var reference in onDisk.Take(2))
+            {
+                facts.Add(new EvidencedFact($"`{reference.Name}` is a {reference.Kind}", reference.File, reference.Line, reference.Source));
+                named.Add(reference);
+            }
+        }
+        else if (files.Count > 1)
+        {
+            var places = string.Join(", ", onDisk.Take(5).Select(reference => $"{reference.File}:{reference.Line}"));
+            questions.Add($"The prompt mentions `{identifier}`, which is defined in several places: {places}. Which did you mean?");
+        }
+        else if (exact.Count == 0)
+        {
+            questions.Add(NotFound(identifier, closest));
+        }
+    }
 
     private static string NotFound(string identifier, IReadOnlyList<CodeReference> closest)
     {
@@ -264,16 +292,18 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
         return collapsed.Length <= 300 ? collapsed : collapsed[..300] + "...";
     }
 
-    private static string? EvidenceFile(string root, string basis)
+    // The repository-relative path with forward slashes when that file is on disk inside the root; otherwise null.
+    private static string? ExistingFile(string root, string relativePath)
     {
-        if (string.IsNullOrWhiteSpace(basis) || basis.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+        if (string.IsNullOrWhiteSpace(relativePath) || relativePath.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
         {
             return null;
         }
 
         try
         {
-            return File.Exists(Path.Combine(root, basis)) ? basis.Replace('\\', '/') : null;
+            var full = Path.GetFullPath(Path.Combine(root, relativePath));
+            return IsInside(root, full) && File.Exists(full) ? relativePath.Replace('\\', '/') : null;
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
         {
@@ -281,8 +311,12 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
         }
     }
 
-    // A path is checked where it points; a bare file name is searched for, bounded, skipping build and dependency folders.
-    private static string? LocateFile(string root, string identifier)
+    private static bool IsInside(string root, string fullPath) =>
+        fullPath.StartsWith(Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+
+    // A path is checked where it points. A bare file name is searched for, bounded, skipping build and dependency
+    // folders, and every match is returned: two files of the same name are an ambiguity, not a location.
+    private static (IReadOnlyList<string> Matches, bool SearchedEverything) LocateFiles(string root, string identifier)
     {
         var relative = identifier.Replace('\\', '/').TrimStart('/');
         if (relative.StartsWith("./", StringComparison.Ordinal))
@@ -290,50 +324,57 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
             relative = relative[2..];
         }
 
+        var matches = new List<string>();
         try
         {
             var full = Path.GetFullPath(Path.Combine(root, relative));
-            var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            if (full.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase) && (File.Exists(full) || Directory.Exists(full)))
+            if (IsInside(root, full) && (File.Exists(full) || Directory.Exists(full)))
             {
-                return relative;
+                return (new[] { Path.GetRelativePath(root, full).Replace('\\', '/') }, true);
             }
 
             if (relative.Contains('/'))
             {
-                return null;
+                return (matches, true);
             }
 
             var visited = 0;
             var pending = new Queue<string>();
             pending.Enqueue(Path.GetFullPath(root));
-            while (pending.Count > 0 && visited < MaxFileSearchEntries)
+            while (pending.Count > 0)
             {
                 var directory = pending.Dequeue();
                 foreach (var file in Directory.EnumerateFiles(directory))
                 {
-                    visited++;
+                    if (++visited > MaxFileSearchEntries)
+                    {
+                        return (matches, false);
+                    }
+
                     if (string.Equals(Path.GetFileName(file), relative, StringComparison.OrdinalIgnoreCase))
                     {
-                        return Path.GetRelativePath(root, file).Replace('\\', '/');
+                        matches.Add(Path.GetRelativePath(root, file).Replace('\\', '/'));
+                        if (matches.Count >= MaxFileMatches)
+                        {
+                            return (matches, true);
+                        }
                     }
                 }
 
                 foreach (var child in Directory.EnumerateDirectories(directory))
                 {
-                    visited++;
                     if (!IgnoredDirectories.Contains(Path.GetFileName(child)))
                     {
                         pending.Enqueue(child);
                     }
                 }
             }
+
+            return (matches, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            return null;
+            return (matches, false);
         }
-
-        return null;
     }
 }

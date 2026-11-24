@@ -17,16 +17,21 @@ public class PromptGroundingTests : IDisposable
     {
         public string? UnavailableReason { get; set; }
         public Dictionary<string, CodeReference> Symbols { get; } = new();
+        public Dictionary<string, List<CodeReference>> ManySymbols { get; } = new();
+        public int Calls { get; private set; }
         public List<CodeReference> Relevant { get; } = new();
         public Dictionary<string, string> Tests { get; } = new();
 
-        private CodeLookupResult Wrap(IEnumerable<CodeReference> references) =>
-            UnavailableReason is null ? CodeLookupResult.Found(references.ToList()) : CodeLookupResult.Unavailable(UnavailableReason);
+        private CodeLookupResult Wrap(IEnumerable<CodeReference> references)
+        {
+            Calls++;
+            return UnavailableReason is null ? CodeLookupResult.Found(references.ToList()) : CodeLookupResult.Unavailable(UnavailableReason);
+        }
 
         public CodeLookupResult FindRelevant(string repositoryRoot, string taskDescription, int maxResults) => Wrap(Relevant);
 
         public CodeLookupResult FindSymbol(string repositoryRoot, string name, int maxResults) =>
-            Wrap(Symbols.TryGetValue(name, out var reference) ? new[] { reference } : Array.Empty<CodeReference>());
+            Wrap(ManySymbols.TryGetValue(name, out var many) ? many : Symbols.TryGetValue(name, out var reference) ? new[] { reference } : Array.Empty<CodeReference>());
 
         public CodeLookupResult FindTests(string repositoryRoot, string file) =>
             Wrap(Tests.TryGetValue(file, out var test) ? new[] { new CodeReference(Path.GetFileName(test), "test-file", test, 0, null, "fake") } : Array.Empty<CodeReference>());
@@ -49,7 +54,16 @@ public class PromptGroundingTests : IDisposable
         return Assert.IsType<GroundedBrief>(new PromptGroundingSkillBehavior(provider).Execute(context));
     }
 
-    private static CodeReference Ref(string name, string file, int line, string kind = "class") => new(name, kind, file, line, null, "fake");
+    // Creates the cited file, as a current index implies: a symbol fact is only kept when its file is on disk.
+    private CodeReference Ref(string name, string file, int line, string kind = "class")
+    {
+        var full = Path.Combine(_root, file);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        File.WriteAllText(full, "// " + name);
+        return new CodeReference(name, kind, file, line, null, "fake");
+    }
+
+    private static CodeReference RefNoFile(string name, string file, int line, string kind = "class") => new(name, kind, file, line, null, "fake");
 
     [Fact]
     public void Extract_ReturnsBacktickedPathsAndCompoundIdentifiers_NotPlainWords()
@@ -256,6 +270,97 @@ public class PromptGroundingTests : IDisposable
         Assert.Equal(3, brief.AcceptanceChecks.Count(check => check.StartsWith("Tests in ")));
     }
 
+    // Final review findings 1-4 and 9: ways an unconfirmed location could be presented as confirmed.
+    [Fact]
+    public void Execute_DottedIdentifier_WhoseTypeDoesNotExist_IsAnOpenQuestion_NotConfirmedByASameNamedMember()
+    {
+        var provider = new FakeProvider();
+        provider.Symbols["Submit"] = Ref("Submit", "src/PaymentService.cs", 9, "method");
+
+        var brief = Execute(provider, "Fix retry in `OrderService.Submit`");
+
+        Assert.Empty(brief.VerifiedFacts);
+        Assert.Empty(brief.StrongFiles!);
+        Assert.Contains(brief.OpenQuestions, q => q.Contains("`OrderService.Submit`") && q.Contains("src/PaymentService.cs:9"));
+    }
+
+    [Fact]
+    public void Execute_DottedIdentifier_TypeAndMemberInTheSameFile_IsConfirmed()
+    {
+        var provider = new FakeProvider();
+        provider.Symbols["OrderService"] = Ref("OrderService", "src/OrderService.cs", 3);
+        provider.Symbols["Submit"] = Ref("Submit", "src/OrderService.cs", 20, "method");
+
+        var brief = Execute(provider, "Fix retry in `OrderService.Submit`");
+
+        Assert.Contains(brief.VerifiedFacts, f => f.File == "src/OrderService.cs" && f.Line == 20);
+        Assert.Equal(new[] { "src/OrderService.cs" }, brief.StrongFiles);
+    }
+
+    [Fact]
+    public void Execute_NameDefinedInSeveralFiles_IsAnOpenQuestionListingThem_NotConfirmed()
+    {
+        var provider = new FakeProvider();
+        provider.ManySymbols["parse_order"] = new List<CodeReference> { Ref("parse_order", "app/a.py", 4, "function"), Ref("parse_order", "app/b.py", 8, "function") };
+
+        var brief = Execute(provider, "update parse_order to log");
+
+        Assert.Empty(brief.VerifiedFacts);
+        Assert.Empty(brief.StrongFiles!);
+        Assert.Contains(brief.OpenQuestions, q => q.Contains("`parse_order`") && q.Contains("app/a.py:4") && q.Contains("app/b.py:8"));
+    }
+
+    [Fact]
+    public void Execute_BareFileNameMatchingTwoFiles_IsAnOpenQuestionListingBoth_NotConfirmed()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "a"));
+        Directory.CreateDirectory(Path.Combine(_root, "b"));
+        File.WriteAllText(Path.Combine(_root, "a", "Program.cs"), "// a");
+        File.WriteAllText(Path.Combine(_root, "b", "Program.cs"), "// b");
+
+        var brief = Execute(new FakeProvider(), "fix startup in Program.cs");
+
+        Assert.Empty(brief.VerifiedFacts);
+        Assert.Empty(brief.StrongFiles!);
+        Assert.Contains(brief.OpenQuestions, q => q.Contains("`Program.cs`") && q.Contains("a/Program.cs") && q.Contains("b/Program.cs"));
+    }
+
+    [Fact]
+    public void Execute_SlashWordsProductNamesAndDomains_AreNotTurnedIntoQuestions()
+    {
+        var brief = Execute(new FakeProvider(), "support read/write and/or TCP/IP in Node.js and ASP.NET via example.com");
+
+        Assert.DoesNotContain(brief.OpenQuestions, q => q.StartsWith("The prompt mentions"));
+    }
+
+    [Fact]
+    public void Extract_IgnoresBacktickedPhrasesThatAreCommands()
+    {
+        Assert.Equal(new[] { "OrderService" }, PromptIdentifierExtractor.Extract("run `npm test` then fix `OrderService`"));
+    }
+
+    [Fact]
+    public void Execute_AfterTheFirstUnavailableAnswer_StopsCallingTheProvider()
+    {
+        var provider = new FakeProvider { UnavailableReason = "tokensave timed out after 30 seconds." };
+
+        Execute(provider, "wire OrderService, PaymentGateway, InvoiceBuilder, TaxEngine and ShippingQuote for the QR and T4 flows");
+
+        Assert.Equal(1, provider.Calls);
+    }
+
+    [Fact]
+    public void Execute_SymbolWhoseFileIsNoLongerOnDisk_IsNotAFact()
+    {
+        var provider = new FakeProvider();
+        provider.Symbols["OrderService"] = RefNoFile("OrderService", "src/Deleted.cs", 12);
+
+        var brief = Execute(provider, "Add retries to OrderService");
+
+        Assert.Empty(brief.VerifiedFacts);
+        Assert.Contains(brief.Assumptions, a => a.Contains("src/Deleted.cs") && a.Contains("index may be stale"));
+    }
+
     [Fact]
     public void Execute_NothingLocated_AsksWhatPartOfTheRepository()
     {
@@ -285,7 +390,7 @@ public class PromptGroundingTests : IDisposable
     private static GroundedBrief SampleBrief(int whereToWork = 2) => new(
         "Add retries to OrderService",
         new[] { new EvidencedFact("`OrderService` is a class", "src/OrderService.cs", 12, "fake") },
-        Enumerable.Range(1, whereToWork).Select(i => Ref("Symbol" + i, $"src/some/long/directory/name/File{i}.cs", i)).ToList(),
+        Enumerable.Range(1, whereToWork).Select(i => RefNoFile("Symbol" + i, $"src/some/long/directory/name/File{i}.cs", i)).ToList(),
         new[] { "tests/OrderServiceTests.cs" },
         "dotnet test",
         new[] { "an assumption" },

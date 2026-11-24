@@ -42,7 +42,11 @@ public static class PromptIdentifierExtractor
 
         foreach (Match match in Backticked.Matches(prompt))
         {
-            Add(match.Groups[1].Value);
+            // A backticked phrase with a space is a command or a snippet (`npm test`), not a name to look up.
+            if (!match.Groups[1].Value.Trim().Any(char.IsWhiteSpace))
+            {
+                Add(match.Groups[1].Value);
+            }
         }
 
         foreach (var raw in Backticked.Replace(prompt, " ").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
@@ -108,6 +112,28 @@ public static class PromptIdentifierExtractor
 
     public static bool IsPath(string token) =>
         token.Length > 2 && (token.Contains('/') || token.Contains('\\')) && !token.Contains("://", StringComparison.Ordinal) && token.Any(char.IsLetterOrDigit);
+
+    private static readonly HashSet<string> ProductFileLikeNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Node.js", "Vue.js", "Next.js", "React.js", "Nuxt.js", "Express.js", "Three.js", "D3.js", "ASP.NET", "VB.NET", "ADO.NET", "ML.NET",
+    };
+
+    private static readonly HashSet<string> DomainSuffixes = new(StringComparer.OrdinalIgnoreCase) { "com", "org", "net", "io", "ai", "dev", "app" };
+
+    // Whether a file-shaped token that was NOT found is worth asking the user about. "and/or", "TCP/IP", "Node.js"
+    // and "example.com" are ordinary writing; asking about them adds a user round for nothing.
+    public static bool IsDeliberateFileReference(string token)
+    {
+        var normalized = token.Replace('\\', '/');
+        var lastSegment = normalized[(normalized.LastIndexOf('/') + 1)..];
+        if (normalized.Contains('/'))
+        {
+            return normalized.StartsWith('.') || normalized.Count(character => character == '/') >= 2 || lastSegment.Contains('.');
+        }
+
+        var extension = lastSegment[(lastSegment.LastIndexOf('.') + 1)..];
+        return !ProductFileLikeNames.Contains(lastSegment) && !DomainSuffixes.Contains(extension);
+    }
 
     public static bool IsFileName(string token) => DotFile.IsMatch(token) || (FileName.IsMatch(token) && !IdentifierLooksLikeMemberAccess(token));
 

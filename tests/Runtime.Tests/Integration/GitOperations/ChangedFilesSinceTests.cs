@@ -95,6 +95,36 @@ public class ChangedFilesSinceTests : IDisposable
         Assert.Equal(new[] { "third.txt" }, result.Files);
     }
 
+    // Final review finding 6: a root that is a subdirectory of the repository mixed two path bases.
+    [Fact]
+    public void ChangedFilesSince_RootIsASubdirectory_ReturnsOnlyThatDirectory_RelativeToIt()
+    {
+        InitWithOneCommit(branch: "trunk");
+        Write("packages/api/a.txt", "v1");
+        Git("add", "-A");
+        Git("commit", "-m", "add package");
+        Write("packages/api/a.txt", "v2");
+        Write("packages/api/new.txt", "n");
+        Write("tracked.txt", "v2");
+
+        var result = new LocalGitOperations(Path.Combine(_root, "packages", "api")).ChangedFilesSince(null);
+
+        Assert.True(result.Succeeded, result.FailureReason);
+        Assert.Equal(new[] { "a.txt", "new.txt" }, result.Files);
+    }
+
+    // Final review finding 7: output was decoded with the console code page, not UTF-8.
+    [Fact]
+    public void ChangedFilesSince_NonAsciiFileName_IsReturnedIntact()
+    {
+        InitWithOneCommit(branch: "trunk");
+        Write("docs/caf\u00e9.md", "v1");
+
+        var result = new LocalGitOperations(_root).ChangedFilesSince(null);
+
+        Assert.Contains("docs/caf\u00e9.md", result.Files);
+    }
+
     [Fact]
     public void ChangedFilesSince_UnknownBaseRef_ReturnsFailedWithReason()
     {

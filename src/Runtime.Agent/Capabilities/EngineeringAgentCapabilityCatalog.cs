@@ -63,7 +63,7 @@ public sealed class EngineeringAgentCapabilityCatalog : ICapabilityCatalog
             new[] { "UserPrompt", "RepositoryName", "RepositoryRoot" }, "Synchronous"),
         new CapabilityDescriptor(
             "CHANGE-CHECK", "Change Check",
-            "Checks a change a coding agent has made: files changed since a base, tests affected, files outside the expected set, build and test result, and each acceptance check marked met, not met, or cannot tell. Optional string arguments: BaseRef (default: merge-base with the default branch), AcceptanceChecks and ExpectedFiles (newline-separated, from the grounded brief), SkipBuildAndTests (\"true\" to skip running the build and tests). Reads only; never modifies the repository.",
+            "Checks a change a coding agent has made: files changed since a base, tests affected, files outside the expected set, build and test result, and each acceptance check marked met, not met, or cannot tell. Optional string arguments: BaseRef (default: merge-base with the default branch), AcceptanceChecks and ExpectedFiles (newline-separated, from the grounded brief), SkipBuildAndTests (\"true\" to skip). Never edits source files; unless skipped it runs the repository build and tests, which execute repository code and write build output.",
             new[] { "RepositoryName", "RepositoryRoot" }, "Synchronous"),
     };
 
