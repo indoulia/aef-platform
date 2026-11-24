@@ -51,6 +51,55 @@ public static class PromptIdentifierExtractor
         return found;
     }
 
+    private static readonly Regex CommitPrefix = new(@"^\s*[A-Za-z]+(\((?<scope>[^)]+)\))?!?:\s*", RegexOptions.Compiled);
+    private static readonly Regex Code = new(@"^[A-Z][A-Z0-9]+(-\d+)?$", RegexOptions.Compiled);
+    private static readonly Regex ProperNoun = new("^[A-Z][a-z]{2,}$", RegexOptions.Compiled);
+    private const int MaxSearchTerms = 6;
+
+    // Distinctive words worth searching the repository for: a conventional-commit scope, codes and acronyms
+    // (T4, QR, EPIC-138), and capitalised names that do not merely start a sentence. Unlike Extract, a term
+    // that finds nothing is not a claim the prompt made, so it never becomes an open question.
+    public static IReadOnlyList<string> ExtractSearchTerms(string prompt)
+    {
+        var terms = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var identifiers = new HashSet<string>(Extract(prompt), StringComparer.Ordinal);
+
+        void Add(string term)
+        {
+            if (term.Length > 1 && terms.Count < MaxSearchTerms && !identifiers.Contains(term) && seen.Add(term))
+            {
+                terms.Add(term);
+            }
+        }
+
+        var body = prompt;
+        var prefix = CommitPrefix.Match(prompt);
+        if (prefix.Success)
+        {
+            foreach (var scope in prefix.Groups["scope"].Value.Split(new[] { ',', '/', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                Add(scope);
+            }
+
+            body = prompt[prefix.Length..];
+        }
+
+        var sentenceStart = true;
+        foreach (var raw in body.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var token = raw.Trim(Edge);
+            if (Code.IsMatch(token) || (!sentenceStart && ProperNoun.IsMatch(token)))
+            {
+                Add(token);
+            }
+
+            sentenceStart = raw.EndsWith('.') || raw.EndsWith('!') || raw.EndsWith('?');
+        }
+
+        return terms;
+    }
+
     public static bool IsPath(string token) =>
         token.Length > 2 && (token.Contains('/') || token.Contains('\\')) && !token.Contains("://", StringComparison.Ordinal) && token.Any(char.IsLetterOrDigit);
 

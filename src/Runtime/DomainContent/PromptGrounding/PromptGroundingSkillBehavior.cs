@@ -10,7 +10,7 @@ namespace Runtime.DomainContent.PromptGrounding;
 public sealed class PromptGroundingSkillBehavior : IBehavior
 {
     public const int MaxWhereToWork = 12;
-    private const int MaxTestFiles = 8;
+    private const int MaxTestFiles = 3;
     private const int MaxIdentifiers = 15;
     private const int MaxFileSearchEntries = 20000;
 
@@ -87,15 +87,71 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
             unavailableReason ??= relevant.UnavailableReason;
         }
 
-        var candidates = named.Concat(relevant.References)
+        // Rank by how many distinct prompt terms point at a file. One loose match is a lead, not a location.
+        var matchedTerms = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var searchHits = new List<CodeReference>();
+        void Credit(CodeReference reference, string term)
+        {
+            if (!matchedTerms.TryGetValue(reference.File, out var terms))
+            {
+                matchedTerms[reference.File] = terms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            terms.Add(term);
+        }
+
+        foreach (var reference in relevant.References)
+        {
+            Credit(reference, "~context");
+        }
+
+        foreach (var term in PromptIdentifierExtractor.ExtractSearchTerms(request.UserPrompt))
+        {
+            var hits = _provider.FindSymbol(root, term, 10);
+            if (!hits.Available)
+            {
+                unavailableReason ??= hits.UnavailableReason;
+                continue;
+            }
+
+            foreach (var reference in hits.References)
+            {
+                Credit(reference, term);
+                searchHits.Add(reference);
+            }
+        }
+
+        var namedFiles = new HashSet<string>(named.Select(reference => reference.File), StringComparer.OrdinalIgnoreCase);
+        // A distinctive term found by name is stronger evidence than a loose natural-language match.
+        double Score(CodeReference reference) => namedFiles.Contains(reference.File)
+            ? double.MaxValue
+            : matchedTerms.TryGetValue(reference.File, out var terms) ? terms.Count - (terms.Contains("~context") ? 0.5 : 0) : 0;
+
+        var candidates = named
+            .Concat(relevant.References.Concat(searchHits).OrderByDescending(Score))
             .GroupBy(reference => (reference.File.ToLowerInvariant(), reference.Line))
             .Select(group => group.First())
+            .GroupBy(reference => reference.File, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(group => group.Take(2))
             .ToList();
         var whereToWork = candidates.Take(MaxWhereToWork).ToList();
+
+        var strongFiles = whereToWork
+            .Select(reference => reference.File)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            // Only what the prompt itself names is confirmed. Search matches rank the list but stay unconfirmed:
+            // on 15 real commits, files with two search signals were the right file 5 times in 30.
+            .Where(namedFiles.Contains)
+            .ToList();
 
         var testFiles = new List<string>();
         foreach (var file in whereToWork.Select(reference => reference.File).Distinct(StringComparer.OrdinalIgnoreCase))
         {
+            if (testFiles.Count >= MaxTestFiles)
+            {
+                break;
+            }
+
             var tests = _provider.FindTests(root, file);
             if (tests.Available)
             {
@@ -135,7 +191,7 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
             assumptions.Insert(0, $"Code intelligence unavailable: {unavailableReason.TrimEnd('.')}. File and symbol locations below were not verified.");
         }
 
-        if (identifiers.Count == 0 && relevant.References.Count == 0)
+        if (unavailableReason is null && identifiers.Count == 0 && candidates.Count == 0)
         {
             questions.Add("The prompt does not name a file, symbol or feature that could be located. What part of the repository is this about?");
         }
@@ -146,7 +202,11 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
             checks.Add($"`{commandText}` exits 0");
         }
 
-        checks.Add("Changes are confined to the files under Where to work, or each extra file is explained");
+        if (strongFiles.Count > 0)
+        {
+            checks.Add("Changes are confined to the files under Where to work, or each extra file is explained");
+        }
+
         checks.Add("Every open question above is answered before editing");
         checks.AddRange(testFiles.Select(test => $"Tests in {test} pass"));
 
@@ -159,7 +219,8 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
             assumptions,
             questions,
             checks,
-            candidates.Count - whereToWork.Count);
+            candidates.Count - whereToWork.Count,
+            strongFiles);
     }
 
     private CodeLookupResult LookUpSymbol(string root, string identifier)

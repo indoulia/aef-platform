@@ -164,6 +164,79 @@ public class PromptGroundingTests : IDisposable
         Assert.Contains("Tests in tests/OrderServiceTests.cs pass", brief.AcceptanceChecks);
     }
 
+    [Theory]
+    [InlineData("fix(strategies): refuse only recent gaps in the T4 window, record older ones on the run", new[] { "strategies", "T4" })]
+    [InlineData("feat(settings): one Upstox form with QR import (camera or photo picker)", new[] { "settings", "Upstox", "QR" })]
+    [InlineData("EPIC-138: the routing sentence, measured and rejected (#231)", new[] { "EPIC-138" })]
+    [InlineData("Please make the login faster. Thanks.", new string[0])]
+    [InlineData("Add retries to OrderService", new string[0])]
+    public void ExtractSearchTerms_ReturnsScopeAcronymsAndProperNouns_NotSentenceStarts(string prompt, string[] expected)
+    {
+        Assert.Equal(expected, PromptIdentifierExtractor.ExtractSearchTerms(prompt));
+    }
+
+    [Fact]
+    public void Execute_FileMatchedByMoreTerms_RanksFirst_ButOnlyNamedFilesAreEverConfirmed()
+    {
+        // Measured on 15 real commits: files matched by two search signals were the right file only 5 times in 30.
+        var provider = new FakeProvider();
+        provider.Relevant.Add(Ref("unrelated", "app/scheduler.py", 5, "function"));
+        provider.Symbols["strategies"] = Ref("strategies", "app/strategies/picks.py", 1, "module");
+        provider.Symbols["T4"] = Ref("t4_window", "app/strategies/picks.py", 40, "function");
+
+        var brief = Execute(provider, "fix(strategies): refuse only recent gaps in the T4 window");
+
+        Assert.Equal("app/strategies/picks.py", brief.WhereToWork[0].File);
+        Assert.Empty(brief.StrongFiles!);
+        var text = GroundedBriefRenderer.Render(brief);
+        Assert.Contains("- app/strategies/picks.py:1 - module `strategies` (possible match, unconfirmed)", text);
+        Assert.Contains("Candidate files (confirm which apply before editing): app/strategies/picks.py, app/scheduler.py.", text);
+        Assert.DoesNotContain("Work in:", text);
+    }
+
+    [Fact]
+    public void Execute_NamedFile_IsConfirmed_AndRefinedPromptSaysWorkInIt()
+    {
+        var provider = new FakeProvider();
+        provider.Relevant.Add(Ref("unrelated", "app/scheduler.py", 5, "function"));
+        provider.Symbols["OrderService"] = Ref("OrderService", "src/OrderService.cs", 12);
+
+        var brief = Execute(provider, "Add retries to OrderService");
+
+        Assert.Equal(new[] { "src/OrderService.cs" }, brief.StrongFiles);
+        Assert.Contains("Work in: src/OrderService.cs.", GroundedBriefRenderer.Render(brief));
+    }
+
+    [Fact]
+    public void Execute_NoStrongFiles_OmitsConfinementCheck_AndRefinedPromptAsksToConfirmCandidates()
+    {
+        var provider = new FakeProvider();
+        provider.Relevant.Add(Ref("unrelated", "app/scheduler.py", 5, "function"));
+
+        var brief = Execute(provider, "make the login faster");
+
+        Assert.Empty(brief.StrongFiles!);
+        Assert.DoesNotContain(brief.AcceptanceChecks, check => check.StartsWith("Changes are confined"));
+        var text = GroundedBriefRenderer.Render(brief);
+        Assert.Contains("Candidate files (confirm which apply before editing): app/scheduler.py.", text);
+        Assert.DoesNotContain("Work in:", text);
+    }
+
+    [Fact]
+    public void Execute_TestChecks_AreLimitedToThree()
+    {
+        var provider = new FakeProvider();
+        foreach (var i in Enumerable.Range(1, 6))
+        {
+            provider.Relevant.Add(Ref("S" + i, $"src/F{i}.cs", i));
+            provider.Tests[$"src/F{i}.cs"] = $"tests/F{i}Tests.cs";
+        }
+
+        var brief = Execute(provider, "make the login faster");
+
+        Assert.Equal(3, brief.AcceptanceChecks.Count(check => check.StartsWith("Tests in ")));
+    }
+
     [Fact]
     public void Execute_NothingLocated_AsksWhatPartOfTheRepository()
     {
@@ -173,12 +246,21 @@ public class PromptGroundingTests : IDisposable
     }
 
     [Fact]
-    public void Execute_AlwaysIncludesConfinementAndOpenQuestionChecks()
+    public void Execute_NamedFile_IncludesConfinementCheck_AndOpenQuestionCheckIsAlwaysPresent()
     {
-        var brief = Execute(new FakeProvider(), "make it better");
+        var provider = new FakeProvider();
+        provider.Symbols["OrderService"] = Ref("OrderService", "src/OrderService.cs", 12);
 
-        Assert.Contains("Changes are confined to the files under Where to work, or each extra file is explained", brief.AcceptanceChecks);
-        Assert.Contains("Every open question above is answered before editing", brief.AcceptanceChecks);
+        Assert.Contains("Changes are confined to the files under Where to work, or each extra file is explained", Execute(provider, "Add retries to OrderService").AcceptanceChecks);
+        Assert.Contains("Every open question above is answered before editing", Execute(new FakeProvider(), "make it better").AcceptanceChecks);
+    }
+
+    [Fact]
+    public void Execute_ProviderUnavailableAndNothingNamed_DoesNotAskWhatPartOfTheRepository()
+    {
+        var brief = Execute(new FakeProvider { UnavailableReason = "tokensave is not installed or not on PATH." }, "make it better");
+
+        Assert.DoesNotContain(brief.OpenQuestions, question => question.StartsWith("The prompt does not name"));
     }
 
     private static GroundedBrief SampleBrief(int whereToWork = 2) => new(

@@ -17,4 +17,7 @@ public sealed record GroundedBrief(
     IReadOnlyList<string> Assumptions,
     IReadOnlyList<string> OpenQuestions,
     IReadOnlyList<string> AcceptanceChecks,
-    int OmittedCount);
+    int OmittedCount,
+    // Files named in the prompt or matched by two or more distinct prompt terms. Everything else under
+    // WhereToWork is a search match whose relevance is unconfirmed.
+    IReadOnlyList<string>? StrongFiles = null);

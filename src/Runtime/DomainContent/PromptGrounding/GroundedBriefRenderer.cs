@@ -40,9 +40,10 @@ public static class GroundedBriefRenderer
         Section(builder, "Goal", new[] { brief.Goal }, bullet: false);
         Section(builder, "Verified facts", brief.VerifiedFacts.Select(fact => $"{fact.Statement} ({Location(fact.File, fact.Line)})"));
 
-        var work = whereToWork.Select(reference => reference.Line > 0
-                ? $"{Location(reference.File, reference.Line)} - {reference.Kind} `{reference.Name}`"
-                : reference.File)
+        var strong = new HashSet<string>(brief.StrongFiles ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        var work = whereToWork.Select(reference =>
+                (reference.Line > 0 ? $"{Location(reference.File, reference.Line)} - {reference.Kind} `{reference.Name}`" : reference.File)
+                + (strong.Contains(reference.File) ? string.Empty : " (possible match, unconfirmed)"))
             .Concat(testFiles.Select(test => $"{test} - covering tests"))
             .ToList();
         if (omitted > 0)
@@ -59,9 +60,14 @@ public static class GroundedBriefRenderer
         builder.Append("## Refined prompt\n");
         builder.Append(brief.Goal).Append('\n');
         var files = whereToWork.Select(reference => reference.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (files.Count > 0)
+        var strongFiles = files.Where(strong.Contains).ToList();
+        if (strongFiles.Count > 0)
         {
-            builder.Append("Work in: ").Append(string.Join(", ", files)).Append(".\n");
+            builder.Append("Work in: ").Append(string.Join(", ", strongFiles)).Append(".\n");
+        }
+        else if (files.Count > 0)
+        {
+            builder.Append("Candidate files (confirm which apply before editing): ").Append(string.Join(", ", files.Take(5))).Append(".\n");
         }
 
         if (brief.BuildAndTestCommand is not null)
