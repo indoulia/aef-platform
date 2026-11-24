@@ -2,7 +2,7 @@
 
 Real requests through the real built binaries (`AefPlatform.Mcp.dll`, `AefPlatform.Cli.dll`, `AefPlatform.Host.dll`) against three real repositories: `C:\AIAgent\Ferret` (TypeScript), `C:\AIAgent\marksy-api` (Python) and `C:\AIAgent\marksy-os` (Android, Gradle Kotlin DSL). This closes Epic M2-0001 Story S8 and covers the two new grounding tools. The MCP server was driven over stdio by a small JSON-RPC client; nothing was written to the three repositories apart from a tokensave index in `marksy-api` (kept out of its git status through `.git/info/exclude`).
 
-**Baseline:** 612/612 before the work. **Result:** 722/722 after. Seven real defects found and fixed, each with a regression test.
+**Baseline:** 612/612 before the work. **Result:** 734/734 after. Seven real defects found and fixed by the sweep, each with a regression test; an independent review of the branch then found nine more issues in the new code, also fixed with tests.
 
 ## Defects found and fixed
 
