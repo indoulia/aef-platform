@@ -16,6 +16,7 @@ public class PromptGroundingTests : IDisposable
     private sealed class FakeProvider : ICodeIntelligenceProvider
     {
         public string? UnavailableReason { get; set; }
+        public bool Outage { get; set; } = true;
         public Dictionary<string, CodeReference> Symbols { get; } = new();
         public Dictionary<string, List<CodeReference>> ManySymbols { get; } = new();
         public int Calls { get; private set; }
@@ -25,7 +26,7 @@ public class PromptGroundingTests : IDisposable
         private CodeLookupResult Wrap(IEnumerable<CodeReference> references)
         {
             Calls++;
-            return UnavailableReason is null ? CodeLookupResult.Found(references.ToList()) : CodeLookupResult.Unavailable(UnavailableReason);
+            return UnavailableReason is null ? CodeLookupResult.Found(references.ToList()) : Outage ? CodeLookupResult.Unavailable(UnavailableReason) : CodeLookupResult.Unreadable(UnavailableReason);
         }
 
         public CodeLookupResult FindRelevant(string repositoryRoot, string taskDescription, int maxResults) => Wrap(Relevant);
@@ -166,7 +167,7 @@ public class PromptGroundingTests : IDisposable
         Assert.NotEmpty(brief.VerifiedFacts);
         Assert.All(brief.VerifiedFacts, f => Assert.False(string.IsNullOrWhiteSpace(f.File)));
         Assert.Contains(brief.VerifiedFacts, f => f.File == "package.json" && f.Statement.Contains("node"));
-        Assert.Contains(brief.Assumptions, a => a.Contains("python"));
+        Assert.DoesNotContain(brief.Assumptions, a => a.Contains("python")); // an unevidenced stack is not worth a line
         Assert.Equal("npm test", brief.BuildAndTestCommand);
     }
 
@@ -222,7 +223,6 @@ public class PromptGroundingTests : IDisposable
         Assert.Equal("app/strategies/picks.py", brief.WhereToWork[0].File);
         Assert.Empty(brief.StrongFiles!);
         var text = GroundedBriefRenderer.Render(brief);
-        Assert.Contains("- app/strategies/picks.py:1 - module `strategies` (possible match, unconfirmed)", text);
         Assert.Contains("Candidate files (confirm which apply before editing): app/strategies/picks.py, app/scheduler.py.", text);
         Assert.DoesNotContain("Work in:", text);
     }
@@ -350,6 +350,28 @@ public class PromptGroundingTests : IDisposable
     }
 
     [Fact]
+    public void Execute_OneUnreadableAnswer_DoesNotStopLaterLookups_OrClaimCodeIntelligenceIsUnavailable()
+    {
+        var provider = new FakeProvider { UnavailableReason = "tokensave returned output that could not be read.", Outage = false };
+
+        var brief = Execute(provider, "wire OrderService and PaymentGateway");
+
+        Assert.True(provider.Calls > 1);
+        Assert.DoesNotContain(brief.Assumptions, a => a.StartsWith("Code intelligence unavailable"));
+    }
+
+    [Fact]
+    public void Execute_SameFileNamedTwoWays_IsOneFact()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "app"));
+        File.WriteAllText(Path.Combine(_root, "app", "picks.py"), "# picks");
+
+        var brief = Execute(new FakeProvider(), "fix picks.py, that is app/picks.py");
+
+        Assert.Single(brief.VerifiedFacts, f => f.File == "app/picks.py");
+    }
+
+    [Fact]
     public void Execute_SymbolWhoseFileIsNoLongerOnDisk_IsNotAFact()
     {
         var provider = new FakeProvider();
@@ -398,16 +420,20 @@ public class PromptGroundingTests : IDisposable
         new[] { "`dotnet test` exits 0" },
         0);
 
+    // Cost: the brief is read by the agent on every call, so it carries only what adds information.
     [Fact]
-    public void Render_ContainsAllEightHeadingsInOrder_AndClosingLine()
+    public void Render_ShowsSectionsInOrder_WithoutGoalOrRefinedPromptDuplication()
     {
-        var text = GroundedBriefRenderer.Render(SampleBrief());
+        var text = GroundedBriefRenderer.Render(SampleBrief() with { StrongFiles = new[] { "src/OrderService.cs" } });
 
-        var headings = new[] { "## Goal", "## Verified facts", "## Where to work", "## How to build and test", "## Assumptions", "## Open questions", "## Acceptance checks", "## Refined prompt" };
+        var headings = new[] { "## Verified facts", "## Open questions", "## Where to work", "## Build and test", "## Assumptions", "## Done when" };
         var positions = headings.Select(h => text.IndexOf(h, StringComparison.Ordinal)).ToList();
         Assert.All(positions, p => Assert.True(p >= 0));
         Assert.Equal(positions.OrderBy(p => p), positions);
-        Assert.EndsWith("Treat Verified facts as ground truth. Ask the user the Open questions before editing.", text.TrimEnd());
+        Assert.DoesNotContain("## Goal", text);
+        Assert.DoesNotContain("## Refined prompt", text);
+        Assert.DoesNotContain("Add retries to OrderService", text);
+        Assert.EndsWith("Verified facts are checked against the repository. Ask the user the open questions before editing.", text.TrimEnd());
     }
 
     [Fact]
@@ -417,23 +443,48 @@ public class PromptGroundingTests : IDisposable
     }
 
     [Fact]
-    public void Render_EmptySections_SayNone()
+    public void Render_OmitsEmptySections()
     {
         var brief = SampleBrief() with { Assumptions = Array.Empty<string>(), OpenQuestions = Array.Empty<string>() };
 
         var text = GroundedBriefRenderer.Render(brief);
 
-        Assert.Contains("## Assumptions\n- None.", text);
-        Assert.Contains("## Open questions\n- None.", text);
+        Assert.DoesNotContain("## Assumptions", text);
+        Assert.DoesNotContain("## Open questions", text);
+        Assert.DoesNotContain("None.", text);
     }
 
     [Fact]
-    public void Render_LargeBrief_StaysWithinMaxBriefCharacters_AndStatesOmittedCount()
+    public void Render_NothingToAdd_IsOneShortLinePlusTheBuildCommand()
+    {
+        var brief = new GroundedBrief("make it better", Array.Empty<EvidencedFact>(), Array.Empty<CodeReference>(), Array.Empty<string>(), "dotnet test",
+            Array.Empty<string>(), Array.Empty<string>(), new[] { "`dotnet test` exits 0" }, 0);
+
+        var text = GroundedBriefRenderer.Render(brief);
+
+        Assert.StartsWith("No repository facts to add for this request.", text);
+        Assert.Contains("`dotnet test`", text);
+        Assert.True(text.Length < 200, $"length {text.Length}");
+    }
+
+    [Fact]
+    public void Render_Candidates_AreOneLineOfAtMostFiveFiles_WithACountOfTheRest()
     {
         var text = GroundedBriefRenderer.Render(SampleBrief(whereToWork: 400));
 
-        Assert.True(text.Length <= GroundedBriefRenderer.MaxBriefCharacters, $"length {text.Length}");
-        Assert.Matches(@"\(\d+ more omitted\)", text);
-        Assert.Contains("## Acceptance checks", text);
+        Assert.True(text.Length < 1200, $"length {text.Length}");
+        Assert.Contains("File1.cs", text);
+        Assert.Contains("File5.cs", text);
+        Assert.DoesNotContain("File6.cs", text);
+        Assert.Contains("(+395 more)", text);
+        Assert.Contains("Covering tests: tests/OrderServiceTests.cs.", text);
+    }
+
+    [Fact]
+    public void Render_TypicalBrief_IsUnderAThousandCharacters()
+    {
+        var text = GroundedBriefRenderer.Render(SampleBrief(whereToWork: 12) with { StrongFiles = new[] { "src/some/long/directory/name/File1.cs" } });
+
+        Assert.True(text.Length < 1000, $"length {text.Length}");
     }
 }

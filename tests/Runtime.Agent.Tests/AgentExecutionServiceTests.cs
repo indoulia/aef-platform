@@ -124,7 +124,7 @@ public class AgentExecutionServiceTests
         var response = NewService(runtime).Execute(new ExecutionRequest("req-1", null, "refine prompt", "default-profile", payload));
 
         Assert.Equal(ExecutionStatus.Completed, response.Status);
-        Assert.StartsWith("## Goal", response.Evidence.Document);
+        Assert.Contains("Code intelligence unavailable", response.Evidence.Document);
     }
 
     [Fact]

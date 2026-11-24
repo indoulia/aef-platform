@@ -45,7 +45,7 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
             }
 
             var result = call(_inner);
-            if (!result.Available)
+            if (result.ToolUnavailable)
             {
                 UnavailableReason = result.UnavailableReason ?? "no reason given";
             }
@@ -150,21 +150,16 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
         var technologies = request.Repository.TechnologyProfile?.Technologies ?? Array.Empty<Integration.RepositoryScanning.TechnologyEvidence>();
         foreach (var technology in technologies)
         {
+            // A stack with no evidencing file is not worth a line; the build command below already implies it.
             if (ExistingFile(root, technology.Basis) is { } evidenceFile)
             {
                 facts.Add(new EvidencedFact($"Detected stack: {technology.Name}", evidenceFile, null, "stack-detector"));
             }
-            else
-            {
-                assumptions.Add($"Detected stack: {technology.Name} (basis: {technology.Basis}); no single evidencing file was identified.");
-            }
         }
 
+        // The command is a convention for the stack, not read from the repository; the renderer says so on its line.
         var command = BuildSystemDetector.DetectDefaultValidationCommand(technologies.Select(technology => technology.Name).ToList());
         var commandText = command is null ? null : (command.Value.Command + " " + string.Join(' ', command.Value.Arguments)).Trim();
-        assumptions.Add(commandText is null
-            ? "No build or test command could be detected for this repository."
-            : $"`{commandText}` is the conventional command for the detected stack; the repository may define its own.");
 
         if (provider.UnavailableReason is not null)
         {
@@ -187,7 +182,11 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
             checks.Add("Changes are confined to the files under Where to work, or each extra file is explained");
         }
 
-        checks.Add("Every open question above is answered before editing");
+        if (questions.Count > 0)
+        {
+            checks.Add("Every open question above is answered before editing");
+        }
+
         checks.AddRange(testFiles.Select(test => $"Tests in {test} pass"));
 
         return new GroundedBrief(
@@ -206,7 +205,11 @@ public sealed class PromptGroundingSkillBehavior : IBehavior
     private static void GroundFile(string root, string identifier, List<EvidencedFact> facts, List<string> assumptions, List<string> questions, List<CodeReference> named)
     {
         var (matches, searchedEverything) = LocateFiles(root, identifier);
-        if (matches.Count == 1)
+        if (matches.Count == 1 && facts.Any(fact => fact.Source == "filesystem" && string.Equals(fact.File, matches[0], StringComparison.OrdinalIgnoreCase)))
+        {
+            // The same file named two ways ("picks.py" and "app/picks.py") is one fact.
+        }
+        else if (matches.Count == 1)
         {
             facts.Add(new EvidencedFact($"`{identifier}` exists", matches[0], null, "filesystem"));
             named.Add(new CodeReference(Path.GetFileName(matches[0]), "file", matches[0], 0, null, "filesystem"));

@@ -1,6 +1,6 @@
 # MCP Adapter Reference
 
-`AefPlatform.Mcp` is a stdio MCP server over the same execution core as the REST and CLI channels. It exposes 15 tools. It reads repositories; it never edits, commits to, or indexes one.
+`AefPlatform.Mcp` is a stdio MCP server over the same execution core as the REST and CLI channels. By default it lists two tools, the grounding tools below; the other thirteen stay callable by name and are listed when `Mcp:ExposeAllTools` is `true` (environment variable `Mcp__ExposeAllTools=true`). It reads repositories; it never edits, commits to, or indexes one.
 
 ## Registering the server
 
@@ -21,18 +21,16 @@ These two are the reason to connect a coding agent.
 
 Turns a user prompt into a grounded brief. Arguments, all required strings: `UserPrompt`, `RepositoryName`, `RepositoryRoot`.
 
-The brief has eight sections:
+The brief prints only sections that have content, in this order:
 
-- **Goal** — the request restated.
-- **Verified facts** — each ends with the file, and line where there is one, that proves it. A file or symbol the prompt names is checked; if it exists it appears here.
-- **Where to work** — files and symbols, each with `file:line`. A file the prompt names is confirmed. Everything found by search is marked `(possible match, unconfirmed)`.
-- **How to build and test** — the conventional command for the detected stack.
-- **Assumptions** — anything inferred, including the build command.
-- **Open questions** — for example a file or symbol the prompt names that was not found, with the closest real matches. The agent should ask the user these before editing.
-- **Acceptance checks** — checkable conditions; `aef_check_change` understands them.
-- **Refined prompt** — a paste-ready prompt built from the above.
+- **Verified facts** — each ends with the file, and line where there is one, that proves it. A file or symbol the prompt names is checked; if it resolves to exactly one place it appears here.
+- **Open questions** — a file or symbol the prompt names that was not found (with the closest real matches) or that matches several places. The agent should ask the user these before editing.
+- **Where to work** — `Work in:` lists files the prompt named. `Candidate files` lists at most five search matches, which are unconfirmed. `Covering tests` lists up to three test files.
+- **Build and test** — the conventional command for the detected stack, marked unverified.
+- **Assumptions** — only when something could not be checked.
+- **Done when** — checkable conditions; `aef_check_change` understands them.
 
-Example, abridged:
+Example:
 
 ```
 ## Verified facts
@@ -41,12 +39,15 @@ Example, abridged:
 ## Open questions
 - The prompt mentions `NoSuchThingAnywhere`, which was not found in the repository. Which file or symbol did you mean?
 
-## Refined prompt
-tidy .gitignore and fix NoSuchThingAnywhere
-Work in: .gitignore.
+## Where to work
+- Work in: .gitignore.
 ```
 
-The brief is assembled without an LLM and is capped at 6,000 characters.
+When there is nothing to add, the whole reply is one line plus the build command.
+
+**Cost.** The agent pays for the tool list in every session and for each reply. Measured on a real request: tool list about 270 tokens (it was 1,300 with all fifteen tools listed); a typical brief about 150 tokens (it was 600). Each call is also one extra round trip, so the tool description tells the agent to skip the call when the request names nothing specific.
+
+The brief is assembled without an LLM.
 
 **Prerequisite:** symbol lookup uses the `tokensave` command-line tool, which must be on PATH. Run `tokensave init` once in the target repository. Without tokensave, or without an index, a brief is still returned: it says code intelligence is unavailable and still checks named files on disk.
 
@@ -59,7 +60,7 @@ Reports on a change the agent has made. Required strings: `RepositoryName`, `Rep
 - `ExpectedFiles` — newline-separated, the files the change was meant to stay within.
 - `SkipBuildAndTests` — `"true"` to skip running the build and tests. A test run blocks the server until it finishes, up to 10 minutes.
 
-The report lists files changed (committed since the base, staged, unstaged and untracked), files outside `ExpectedFiles`, affected tests, the build and test result, and each acceptance check as `met`, `not met` or `cannot tell`. A check the tool cannot evaluate mechanically is `cannot tell`, never assumed met. The call is an error only when the build or tests ran and failed, or git could not be read.
+The report lists files changed (committed since the base, staged, unstaged and untracked), files outside `ExpectedFiles`, affected tests, the build and test result, and each acceptance check as `met`, `not met` or `cannot tell`. Empty sections are omitted and long lists are capped with a count. A check the tool cannot evaluate mechanically is `cannot tell`, never assumed met. The call is an error only when the build or tests ran and failed, or git could not be read.
 
 ## Other tools
 
@@ -71,7 +72,7 @@ The report lists files changed (committed since the base, staged, unstaged and u
 | `aef_validate_repository` | `RepositoryName`, `RepositoryRoot` | Runs the detected build/test command. |
 | `aef_deliver_implementation`, `aef_review_specification`, `aef_validate_implementation` | — | Listed but deferred: they need typed payloads no JSON channel can build. Calling one returns a clear "deferred" error. |
 
-Every result carries its evidence as text after the first line.
+The older tools return a one-line status followed by their findings.
 
 ## Configuration
 

@@ -162,6 +162,33 @@ public class ChangeCheckTests
     }
 
     [Fact]
+    public void Render_OmitsEmptySections()
+    {
+        var text = ChangeCheckRenderer.Render(Execute(Changed("src/A.cs"), Validation(0), provider: new FakeProvider { Available = false }));
+
+        Assert.Contains("## Files changed\n- src/A.cs", text);
+        Assert.DoesNotContain("## Outside the expected files", text);
+        Assert.DoesNotContain("## Acceptance checks", text);
+        Assert.DoesNotContain("None.", text);
+    }
+
+    [Fact]
+    public void Render_LongLists_AreCappedWithACount()
+    {
+        var files = Enumerable.Range(1, 60).Select(i => $"src/F{i:00}.cs").ToArray();
+        var report = Execute(Changed(files), Validation(0)) with { Affected = files.Select(f => new CodeReference(f, "test-file", f.Replace("src", "tests"), 0, null, "fake")).ToList() };
+
+        var text = ChangeCheckRenderer.Render(report);
+
+        Assert.Contains("- src/F30.cs", text);
+        Assert.DoesNotContain("- src/F31.cs", text);
+        Assert.Contains("- (+30 more)", text);
+        Assert.Contains("- tests/F08.cs", text);
+        Assert.DoesNotContain("- tests/F09.cs", text);
+        Assert.Contains("- (+52 more)", text);
+    }
+
+    [Fact]
     public void Render_ContainsEverySection()
     {
         var text = ChangeCheckRenderer.Render(Execute(Changed("src/A.cs", "src/Other.cs"), Validation(1), new[] { Confined, "`dotnet test` exits 0" }, new[] { "src/A.cs" }));

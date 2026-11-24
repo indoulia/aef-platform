@@ -101,7 +101,8 @@ public static class McpToolInvoker
         var evidence = response.Evidence;
         if (!string.IsNullOrEmpty(evidence.Document))
         {
-            text += "\n\n" + evidence.Document;
+            // A document is the whole answer; "Completed via ..." in front of it only costs the caller tokens.
+            text = isError ? text + "\n\n" + evidence.Document : evidence.Document;
         }
         else
         {

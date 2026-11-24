@@ -39,6 +39,9 @@ public static class McpToolCatalog
         ["WFL-DEL-0005"] = "aef_validate_implementation",
     };
 
+    // The tools a coding agent is given by default; listing all fifteen costs about five times the tokens per session.
+    public static readonly IReadOnlySet<string> DefaultToolNames = new HashSet<string> { "aef_refine_prompt", "aef_check_change" };
+
     public static ListToolsResult BuildListToolsResult(IReadOnlyList<CapabilityDescriptor> capabilities)
     {
         var tools = capabilities.Select(BuildTool).ToList();

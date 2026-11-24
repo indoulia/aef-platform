@@ -45,7 +45,7 @@ public class McpExecutableStartupTests
         return completed == readTask ? await readTask : null;
     }
 
-    private static Process StartMcpProcess()
+    private static Process StartMcpProcess(bool exposeAllTools = false)
     {
         var startInfo = new ProcessStartInfo("dotnet")
         {
@@ -56,6 +56,10 @@ public class McpExecutableStartupTests
             UseShellExecute = false,
         };
         startInfo.ArgumentList.Add(LocateMcpExecutablePath());
+        if (exposeAllTools)
+        {
+            startInfo.Environment["Mcp__ExposeAllTools"] = "true";
+        }
 
         return Process.Start(startInfo)!;
     }
@@ -129,7 +133,7 @@ public class McpExecutableStartupTests
         var expectedCapabilities = new EngineeringAgentCapabilityCatalog().Discover();
         Assert.Equal(ExpectedToolNames.Count, expectedCapabilities.Count);
 
-        using var process = StartMcpProcess();
+        using var process = StartMcpProcess(exposeAllTools: true);
         try
         {
             const string initializeRequest = """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"McpExecutableStartupTests","version":"1.0.0"}}}""";
@@ -287,6 +291,34 @@ public class McpExecutableStartupTests
         }
     }
 
+    // Cost: every listed tool's schema is sent to the model in every session, so only the two grounding
+    // tools are listed unless Mcp:ExposeAllTools is set. Unlisted tools remain callable.
+    [Fact]
+    public async Task McpExecutable_ToolsList_ByDefault_ListsOnlyTheTwoGroundingTools()
+    {
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            await process.StandardInput.WriteLineAsync("""{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}""");
+            await process.StandardInput.FlushAsync();
+            var response = await ReadLineWithTimeoutAsync(process.StandardOutput, TimeSpan.FromSeconds(30));
+
+            using var document = JsonDocument.Parse(response!);
+            var tools = document.RootElement.GetProperty("result").GetProperty("tools");
+            var names = tools.EnumerateArray().Select(tool => tool.GetProperty("name").GetString()).OrderBy(name => name).ToArray();
+            Assert.Equal(new[] { "aef_check_change", "aef_refine_prompt" }, names);
+            Assert.True(tools.GetRawText().Length < 1100, $"tool list is {tools.GetRawText().Length} characters");
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
     private static string LocateRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -335,10 +367,10 @@ public class McpExecutableStartupTests
             var result = document.RootElement.GetProperty("result");
             Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
             var text = result.GetProperty("content")[0].GetProperty("text").GetString()!;
-            Assert.Contains("## Verified facts", text);
             Assert.Contains("## Open questions", text);
-            Assert.Contains("Treat Verified facts as ground truth.", text);
-            Assert.DoesNotContain("\\", text.Split("## Where to work")[1].Split("## How to build")[0]);
+            Assert.Contains("`NoSuchThingAnywhere`, which was not found", text);
+            Assert.DoesNotContain("\\", text);
+            Assert.DoesNotContain("Completed via", text);
         }
         finally
         {

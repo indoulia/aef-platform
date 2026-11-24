@@ -59,11 +59,11 @@ public sealed class EngineeringAgentCapabilityCatalog : ICapabilityCatalog
             new[] { "RepositoryName", "RepositoryRoot" }, "Synchronous"),
         new CapabilityDescriptor(
             "PROMPT-GROUNDING", "Prompt Grounding",
-            "Turns a user prompt into a grounded brief for a coding agent: verified repository facts with file and line, where to work, build and test commands, flagged assumptions, open questions, and acceptance checks. Reads only; never modifies the repository.",
+            "Call once before editing when the request names a file, symbol or identifier. Checks each against the repository: returns file:line for what exists and a question for what does not, plus candidate files and the build command. Skip it when the request names nothing specific. Read-only.",
             new[] { "UserPrompt", "RepositoryName", "RepositoryRoot" }, "Synchronous"),
         new CapabilityDescriptor(
             "CHANGE-CHECK", "Change Check",
-            "Checks a change a coding agent has made: files changed since a base, tests affected, files outside the expected set, build and test result, and each acceptance check marked met, not met, or cannot tell. Optional string arguments: BaseRef (default: merge-base with the default branch), AcceptanceChecks and ExpectedFiles (newline-separated, from the grounded brief), SkipBuildAndTests (\"true\" to skip). Never edits source files; unless skipped it runs the repository build and tests, which execute repository code and write build output.",
+            "Optional, after editing: lists files changed since a base, files outside ExpectedFiles, and affected tests. Optional string arguments: BaseRef, ExpectedFiles and AcceptanceChecks (newline-separated), SkipBuildAndTests (\"true\"; otherwise it runs the repository's build and tests, which can take minutes). Never edits source files.",
             new[] { "RepositoryName", "RepositoryRoot" }, "Synchronous"),
     };
 

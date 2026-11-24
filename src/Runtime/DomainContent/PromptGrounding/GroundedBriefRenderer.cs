@@ -1,100 +1,81 @@
 using System.Text;
-using Runtime.Integration.CodeIntelligence;
 
 namespace Runtime.DomainContent.PromptGrounding;
 
-// The brief as the calling agent reads it. Capped so it costs less than reading the files would.
+// The brief as the calling agent reads it. The agent pays for every character on every call, so this prints only
+// what adds information: no restated goal, no empty sections, no second copy of the same lists.
 public static class GroundedBriefRenderer
 {
     public const int MaxBriefCharacters = 6000;
-    public const string ClosingLine = "Treat Verified facts as ground truth. Ask the user the Open questions before editing.";
+    public const int MaxCandidateFiles = 5;
+    public const string NothingToAdd = "No repository facts to add for this request.";
+    public const string ClosingLine = "Verified facts are checked against the repository. Ask the user the open questions before editing.";
 
     public static string Render(GroundedBrief brief)
     {
-        var whereToWork = brief.WhereToWork.ToList();
-        var testFiles = brief.TestFiles.ToList();
-        var trimmed = 0;
+        var strong = new HashSet<string>(brief.StrongFiles ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        var files = brief.WhereToWork.Select(reference => reference.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var confirmed = files.Where(strong.Contains).ToList();
+        var candidates = files.Where(file => !strong.Contains(file)).ToList();
 
-        var text = Compose(brief, whereToWork, testFiles, brief.OmittedCount);
-        while (text.Length > MaxBriefCharacters && (whereToWork.Count > 0 || testFiles.Count > 0))
+        var where = new List<string>();
+        if (confirmed.Count > 0)
         {
-            // Drop enough to matter per pass; one-at-a-time re-rendering is quadratic for nothing.
-            var list = whereToWork.Count > 0 ? (System.Collections.IList)whereToWork : testFiles;
-            var drop = Math.Max(1, list.Count / 4);
-            for (var i = 0; i < drop; i++)
+            where.Add($"Work in: {string.Join(", ", confirmed)}.");
+        }
+
+        if (candidates.Count > 0)
+        {
+            var hidden = candidates.Count - Math.Min(candidates.Count, MaxCandidateFiles) + brief.OmittedCount;
+            where.Add($"Candidate files (confirm which apply before editing): {string.Join(", ", candidates.Take(MaxCandidateFiles))}." + (hidden > 0 ? $" (+{hidden} more)" : string.Empty));
+        }
+
+        if (brief.TestFiles.Count > 0)
+        {
+            where.Add($"Covering tests: {string.Join(", ", brief.TestFiles)}.");
+        }
+
+        var builder = new StringBuilder();
+        var hasSubstance = brief.VerifiedFacts.Count > 0 || brief.OpenQuestions.Count > 0 || where.Count > 0 || brief.Assumptions.Count > 0;
+        if (!hasSubstance)
+        {
+            builder.Append(NothingToAdd).Append('\n');
+            if (brief.BuildAndTestCommand is not null)
             {
-                list.RemoveAt(list.Count - 1);
+                builder.Append("Build and test: `").Append(brief.BuildAndTestCommand).Append("` (conventional for the stack, unverified).");
             }
 
-            trimmed += drop;
-            text = Compose(brief, whereToWork, testFiles, brief.OmittedCount + trimmed);
+            return builder.ToString().TrimEnd();
         }
 
-        return text.Length <= MaxBriefCharacters ? text : text[..(MaxBriefCharacters - ClosingLine.Length - 5)] + "\n...\n" + ClosingLine;
-    }
-
-    private static string Compose(GroundedBrief brief, IReadOnlyList<CodeReference> whereToWork, IReadOnlyList<string> testFiles, int omitted)
-    {
-        var builder = new StringBuilder();
-
-        Section(builder, "Goal", new[] { brief.Goal }, bullet: false);
-        Section(builder, "Verified facts", brief.VerifiedFacts.Select(fact => $"{fact.Statement} ({Location(fact.File, fact.Line)})"));
-
-        var strong = new HashSet<string>(brief.StrongFiles ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        var work = whereToWork.Select(reference =>
-                (reference.Line > 0 ? $"{Location(reference.File, reference.Line)} - {reference.Kind} `{reference.Name}`" : reference.File)
-                + (strong.Contains(reference.File) ? string.Empty : " (possible match, unconfirmed)"))
-            .Concat(testFiles.Select(test => $"{test} - covering tests"))
-            .ToList();
-        if (omitted > 0)
-        {
-            work.Add($"({omitted} more omitted)");
-        }
-
-        Section(builder, "Where to work", work);
-        Section(builder, "How to build and test", brief.BuildAndTestCommand is null ? Array.Empty<string>() : new[] { $"`{brief.BuildAndTestCommand}`" });
-        Section(builder, "Assumptions", brief.Assumptions);
+        Section(builder, "Verified facts", brief.VerifiedFacts.Select(fact => $"{fact.Statement} ({(fact.Line is > 0 ? $"{fact.File}:{fact.Line}" : fact.File)})"));
         Section(builder, "Open questions", brief.OpenQuestions);
-        Section(builder, "Acceptance checks", brief.AcceptanceChecks);
+        Section(builder, "Where to work", where);
+        Section(builder, "Build and test", brief.BuildAndTestCommand is null ? Array.Empty<string>() : new[] { $"`{brief.BuildAndTestCommand}` (conventional for the stack, unverified)" });
+        Section(builder, "Assumptions", brief.Assumptions);
+        Section(builder, "Done when", brief.AcceptanceChecks);
 
-        builder.Append("## Refined prompt\n");
-        builder.Append(brief.Goal).Append('\n');
-        var files = whereToWork.Select(reference => reference.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var strongFiles = files.Where(strong.Contains).ToList();
-        if (strongFiles.Count > 0)
+        if (brief.VerifiedFacts.Count > 0 || brief.OpenQuestions.Count > 0)
         {
-            builder.Append("Work in: ").Append(string.Join(", ", strongFiles)).Append(".\n");
-        }
-        else if (files.Count > 0)
-        {
-            builder.Append("Candidate files (confirm which apply before editing): ").Append(string.Join(", ", files.Take(5))).Append(".\n");
+            builder.Append(ClosingLine);
         }
 
-        if (brief.BuildAndTestCommand is not null)
-        {
-            builder.Append("Verify with `").Append(brief.BuildAndTestCommand).Append("`.\n");
-        }
-
-        builder.Append("Done when: ").Append(string.Join("; ", brief.AcceptanceChecks)).Append(".\n\n");
-        builder.Append(ClosingLine);
-        return builder.ToString();
+        var text = builder.ToString().TrimEnd();
+        return text.Length <= MaxBriefCharacters ? text : text[..(MaxBriefCharacters - 4)] + "\n...";
     }
 
-    private static string Location(string file, int? line) => line is > 0 ? $"{file}:{line}" : file;
-
-    private static void Section(StringBuilder builder, string heading, IEnumerable<string> lines, bool bullet = true)
+    private static void Section(StringBuilder builder, string heading, IEnumerable<string> lines)
     {
-        builder.Append("## ").Append(heading).Append('\n');
-        var any = false;
-        foreach (var line in lines)
+        var items = lines.ToList();
+        if (items.Count == 0)
         {
-            any = true;
-            builder.Append(bullet ? "- " : string.Empty).Append(line).Append('\n');
+            return;
         }
 
-        if (!any)
+        builder.Append("## ").Append(heading).Append('\n');
+        foreach (var line in items)
         {
-            builder.Append("- None.\n");
+            builder.Append("- ").Append(line).Append('\n');
         }
 
         builder.Append('\n');

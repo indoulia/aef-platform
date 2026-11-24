@@ -167,13 +167,13 @@ public class McpToolInvokerTests
         Assert.IsType<ModelContextProtocol.Protocol.TextContentBlock>(Assert.Single(result.Content)).Text;
 
     [Fact]
-    public void BuildCallToolResult_WithDocument_ReturnsPresentedResultThenDocument()
+    public void BuildCallToolResult_WithDocument_ReturnsTheDocumentOnly()
     {
         var evidence = new ExecutionEvidence(new[] { "an open question" }, new[] { "a check" }, null, null, null, Document: "# Brief\nbody");
 
         var result = McpToolInvoker.BuildCallToolResult(Response(ExecutionStatus.Completed, "Completed via PROMPT-GROUNDING.", evidence));
 
-        Assert.Equal("Completed via PROMPT-GROUNDING.\n\n# Brief\nbody", TextOf(result));
+        Assert.Equal("# Brief\nbody", TextOf(result)); // the handoff line adds nothing when there is a document
     }
 
     [Fact]

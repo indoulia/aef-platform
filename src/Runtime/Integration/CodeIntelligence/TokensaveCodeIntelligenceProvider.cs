@@ -81,7 +81,7 @@ public sealed class TokensaveCodeIntelligenceProvider : ICodeIntelligenceProvide
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
         {
-            return CodeLookupResult.Unavailable("tokensave returned output that could not be read.");
+            return CodeLookupResult.Unreadable("tokensave returned output that could not be read.");
         }
     }
 
@@ -97,13 +97,20 @@ public sealed class TokensaveCodeIntelligenceProvider : ICodeIntelligenceProvide
     private static IEnumerable<CodeReference> ParseSearch(string text)
     {
         using var document = JsonDocument.Parse(text);
-        return document.RootElement.EnumerateArray().Select(item => new CodeReference(
-            item.GetProperty("name").GetString() ?? string.Empty,
-            item.GetProperty("kind").GetString() ?? "symbol",
-            Normalize(item.GetProperty("file").GetString() ?? string.Empty),
-            item.GetProperty("line").GetInt32(),
-            item.TryGetProperty("signature", out var signature) && signature.ValueKind == JsonValueKind.String ? signature.GetString() : null,
-            Source)).Where(reference => reference.File.Length > 0).ToList();
+        // One odd hit (a file-level node has no line) must not discard the rest of the answer.
+        static string? Text(JsonElement item, string property) =>
+            item.ValueKind == JsonValueKind.Object && item.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+        return document.RootElement.EnumerateArray()
+            .Where(item => !string.IsNullOrEmpty(Text(item, "file")))
+            .Select(item => new CodeReference(
+                Text(item, "name") ?? Path.GetFileName(Text(item, "file")!),
+                Text(item, "kind") ?? "symbol",
+                Normalize(Text(item, "file")!),
+                item.TryGetProperty("line", out var line) && line.ValueKind == JsonValueKind.Number && line.TryGetInt32(out var number) ? number : 0,
+                Text(item, "signature"),
+                Source))
+            .ToList();
     }
 
     private static IEnumerable<CodeReference> ParseContext(string text)

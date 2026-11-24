@@ -151,6 +151,29 @@ public class TokensaveCodeIntelligenceProviderTests
         Assert.False(result.Available);
     }
 
+    // Found on marksy-api: one search hit without a line made the whole answer "unavailable".
+    [Fact]
+    public void FindSymbol_SkipsOrRepairsMalformedItems_InsteadOfFailingTheWholeAnswer()
+    {
+        var inner = "[{\"name\":\"A\",\"kind\":\"file\",\"file\":\"src/A.py\",\"line\":null},{\"name\":\"B\",\"kind\":\"class\"},{\"name\":\"C\",\"kind\":\"class\",\"file\":\"src/C.py\",\"line\":7}]";
+        var envelope = System.Text.Json.JsonSerializer.Serialize(new { content = new[] { new { type = "text", text = inner } } });
+        var (provider, _) = Create(Ok(envelope));
+
+        var result = provider.FindSymbol("C:/repo", "x", 5);
+
+        Assert.True(result.Available);
+        Assert.Equal(new[] { "src/A.py:0", "src/C.py:7" }, result.References.Select(r => r.File + ":" + r.Line));
+    }
+
+    [Fact]
+    public void UnparseableOutput_IsNotAToolOutage()
+    {
+        var (provider, _) = Create(Ok("this is not json"));
+
+        Assert.False(provider.FindSymbol("C:/repo", "X", 5).ToolUnavailable);
+        Assert.True(Create(new ProcessOutput(-1, string.Empty, string.Empty, TimedOut: true, false)).Provider.FindSymbol("C:/repo", "X", 5).ToolUnavailable);
+    }
+
     [Fact]
     public void FindSymbol_NormalizesBackslashesToForwardSlashes()
     {

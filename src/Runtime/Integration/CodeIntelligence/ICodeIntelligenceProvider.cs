@@ -3,9 +3,13 @@ namespace Runtime.Integration.CodeIntelligence;
 // Where a symbol or file lives, and which tool said so. File is repository-relative with forward slashes.
 public sealed record CodeReference(string Name, string Kind, string File, int Line, string? Signature, string Source);
 
-public sealed record CodeLookupResult(bool Available, string? UnavailableReason, IReadOnlyList<CodeReference> References)
+// ToolUnavailable: the tool itself cannot answer (missing, not indexed, timed out) - asking again is pointless.
+// Not set when one answer merely could not be read.
+public sealed record CodeLookupResult(bool Available, string? UnavailableReason, IReadOnlyList<CodeReference> References, bool ToolUnavailable = false)
 {
-    public static CodeLookupResult Unavailable(string reason) => new(false, reason, Array.Empty<CodeReference>());
+    public static CodeLookupResult Unavailable(string reason) => new(false, reason, Array.Empty<CodeReference>(), ToolUnavailable: true);
+
+    public static CodeLookupResult Unreadable(string reason) => new(false, reason, Array.Empty<CodeReference>());
 
     public static CodeLookupResult Found(IReadOnlyList<CodeReference> references) => new(true, null, references);
 }

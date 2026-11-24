@@ -158,13 +158,23 @@ public static class ChangeCheckRenderer
     public static string Render(ChangeCheckReport report)
     {
         var builder = new StringBuilder();
-        Section(builder, "Files changed", report.FilesChanged);
-        Section(builder, "Outside the expected files", report.FilesOutsideExpected);
-        Section(builder, "Affected tests", report.Affected.Select(reference => reference.File));
-        Section(builder, "Build and tests", new[]
+        // Long lists are capped with a count: a large change must not cost the caller thousands of tokens.
+        static IEnumerable<string> Cap(IEnumerable<string> lines, int max)
         {
-            report.BuildAndTestsPassed switch { true => "Passed.", false => "FAILED.", _ => "Not determined." } + (report.BuildAndTestDetail is null ? string.Empty : " " + report.BuildAndTestDetail),
-        });
+            var all = lines.ToList();
+            return all.Count <= max ? all : all.Take(max).Append($"(+{all.Count - max} more)");
+        }
+
+        Section(builder, "Files changed", Cap(report.FilesChanged, 30));
+        Section(builder, "Outside the expected files", Cap(report.FilesOutsideExpected, 30));
+        Section(builder, "Affected tests", Cap(report.Affected.Select(reference => reference.File), 8));
+        // Printed only when there is a result or a reason; "not run" is already a note.
+        Section(builder, "Build and tests", report.BuildAndTestsPassed is null && report.BuildAndTestDetail is null
+            ? Array.Empty<string>()
+            : new[]
+            {
+                report.BuildAndTestsPassed switch { true => "Passed.", false => "FAILED.", _ => "Not determined." } + (report.BuildAndTestsPassed != true && report.BuildAndTestDetail is not null ? " " + report.BuildAndTestDetail : string.Empty),
+            });
         Section(builder, "Acceptance checks", report.Checks.Select(check => $"[{check.Status}] {check.Check} - {check.Evidence}"));
         Section(builder, "Notes", report.Notes);
         return builder.ToString().TrimEnd();
@@ -172,17 +182,17 @@ public static class ChangeCheckRenderer
 
     private static void Section(StringBuilder builder, string heading, IEnumerable<string> lines)
     {
-        builder.Append("## ").Append(heading).Append('\n');
-        var any = false;
-        foreach (var line in lines)
+        // An empty section is omitted: the caller pays for every line.
+        var items = lines.ToList();
+        if (items.Count == 0)
         {
-            any = true;
-            builder.Append("- ").Append(line).Append('\n');
+            return;
         }
 
-        if (!any)
+        builder.Append("## ").Append(heading).Append('\n');
+        foreach (var line in items)
         {
-            builder.Append("- None.\n");
+            builder.Append("- ").Append(line).Append('\n');
         }
 
         builder.Append('\n');
