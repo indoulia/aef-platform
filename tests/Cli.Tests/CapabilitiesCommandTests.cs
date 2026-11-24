@@ -3,22 +3,22 @@ namespace Cli.Tests;
 public class CapabilitiesCommandTests
 {
     [Fact]
-    public void Capabilities_ExitsZeroAndListsElevenCapabilities_TextMode()
+    public void Capabilities_ExitsZeroAndListsEveryCapability_TextMode()
     {
         var (exitCode, stdout, _) = CliExecutableFixture.Run("capabilities");
 
         Assert.Equal(0, exitCode);
-        Assert.Equal(11, stdout.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Equal(13, stdout.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Length);
     }
 
     [Fact]
-    public void Capabilities_JsonMode_IsAnElevenElementArray()
+    public void Capabilities_JsonMode_IsAnArrayOfEveryCapability()
     {
         var (exitCode, stdout, _) = CliExecutableFixture.Run("capabilities", "--output", "json");
 
         Assert.Equal(0, exitCode);
         using var document = System.Text.Json.JsonDocument.Parse(stdout);
-        Assert.Equal(11, document.RootElement.GetArrayLength());
+        Assert.Equal(13, document.RootElement.GetArrayLength());
     }
 
     [Fact]

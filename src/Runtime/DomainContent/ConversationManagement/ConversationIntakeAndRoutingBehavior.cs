@@ -57,6 +57,8 @@ public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
         ("restore", "WFL-DEL-0012"),
         ("rollback", "WFL-DEL-0012"),
         ("platform lifecycle", "WFL-DEL-0012"),
+        ("refine prompt", "PROMPT-GROUNDING"),
+        ("check change", "CHANGE-CHECK"),
     };
 
     public object? Execute(RuntimeExecutionContext context)
@@ -77,7 +79,7 @@ public sealed class ConversationIntakeAndRoutingBehavior : IBehavior
 
         return RoutingResult.NeedsClarification(new[]
         {
-            "Which capability should handle this request? Supported: feature, epic, delivery, analyze, plan, validate, review specification, merge readiness, migration, maintenance, platform lifecycle (install/upgrade/repair/backup/restore/reset AEF)."
+            "Which capability should handle this request? Supported: feature, epic, delivery, analyze, plan, validate, review specification, merge readiness, migration, maintenance, platform lifecycle (install/upgrade/repair/backup/restore/reset AEF), refine prompt, check change."
         });
     }
 }

@@ -85,6 +85,8 @@ public class McpToolInvokerTests
     [InlineData("aef_plan_engineering", "plan")]
     [InlineData("aef_analyze_repository", "analyze")]
     [InlineData("aef_validate_repository", "validate")]
+    [InlineData("aef_refine_prompt", "refine prompt")]
+    [InlineData("aef_check_change", "check change")]
     [InlineData("aef_plan_migration", "migrate")]
     [InlineData("aef_plan_maintenance", "maintenance")]
     [InlineData("aef_manage_platform_lifecycle", "platform lifecycle")]
@@ -138,6 +140,23 @@ public class McpToolInvokerTests
         Assert.False(result.IsError);
         var text = Assert.IsType<ModelContextProtocol.Protocol.TextContentBlock>(Assert.Single(result.Content));
         Assert.Equal("Here is the result.", text.Text);
+    }
+
+    [Fact]
+    public void BuildExecutionRequest_RefinePrompt_UsesFixedLiteral_AndKeepsUserPromptInPayload()
+    {
+        var arguments = new Dictionary<string, System.Text.Json.JsonElement>
+        {
+            ["UserPrompt"] = System.Text.Json.JsonSerializer.SerializeToElement("plan the epic feature migration"),
+            ["RepositoryName"] = System.Text.Json.JsonSerializer.SerializeToElement("repo"),
+            ["RepositoryRoot"] = System.Text.Json.JsonSerializer.SerializeToElement("C:/my repo"),
+        };
+
+        var request = McpToolInvoker.BuildExecutionRequest("aef_refine_prompt", arguments);
+
+        Assert.Equal("refine prompt", request.UserRequest);
+        Assert.Equal("plan the epic feature migration", request.Payload!["UserPrompt"]);
+        Assert.Equal("C:/my repo", request.Payload["RepositoryRoot"]);
     }
 
     private static ExecutionResponse Response(ExecutionStatus status, string? presented, ExecutionEvidence evidence, ExecutionError? error = null) =>

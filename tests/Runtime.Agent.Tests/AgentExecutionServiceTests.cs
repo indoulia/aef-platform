@@ -94,6 +94,39 @@ public class AgentExecutionServiceTests
         Assert.Equal(session.SessionId, second.SessionId);
     }
 
+    private sealed class NoCodeIntelligence : Runtime.Integration.CodeIntelligence.ICodeIntelligenceProvider
+    {
+        private static Runtime.Integration.CodeIntelligence.CodeLookupResult None => Runtime.Integration.CodeIntelligence.CodeLookupResult.Unavailable("not available in this test.");
+
+        public Runtime.Integration.CodeIntelligence.CodeLookupResult FindRelevant(string repositoryRoot, string taskDescription, int maxResults) => None;
+
+        public Runtime.Integration.CodeIntelligence.CodeLookupResult FindSymbol(string repositoryRoot, string name, int maxResults) => None;
+
+        public Runtime.Integration.CodeIntelligence.CodeLookupResult FindTests(string repositoryRoot, string file) => None;
+
+        public Runtime.Integration.CodeIntelligence.CodeLookupResult FindAffected(string repositoryRoot, IReadOnlyList<string> changedFiles) => None;
+    }
+
+    [Fact]
+    public void Execute_MapsExecutionResultDocument_ToEvidenceDocument()
+    {
+        var behaviors = new Dictionary<string, IBehavior>(ConversationBehaviors())
+        {
+            ["PROMPT-GROUNDING"] = new Runtime.DomainContent.PromptGrounding.PromptGroundingSkillBehavior(new NoCodeIntelligence()),
+        };
+        var runtime = BootWithBehaviors(behaviors);
+        foreach (var id in new[] { "SKL-EXE-0021", "SKL-EXE-0022", "PROMPT-GROUNDING" })
+        {
+            runtime.Kernel.Registry.Register(new DefinitionSubmission(id, "Execution"));
+        }
+
+        var payload = new Dictionary<string, object> { ["UserPrompt"] = "make it better", ["RepositoryName"] = "tmp", ["RepositoryRoot"] = Path.GetTempPath() };
+        var response = NewService(runtime).Execute(new ExecutionRequest("req-1", null, "refine prompt", "default-profile", payload));
+
+        Assert.Equal(ExecutionStatus.Completed, response.Status);
+        Assert.StartsWith("## Goal", response.Evidence.Document);
+    }
+
     [Fact]
     public void Execute_UnknownSessionId_ReturnsErrorWithoutInvokingPipeline()
     {
@@ -129,7 +162,7 @@ public class AgentExecutionServiceTests
         var runtime = BootWithBehaviors(ConversationBehaviors());
         var service = NewService(runtime);
 
-        Assert.Equal(11, service.DiscoverCapabilities().Count);
+        Assert.Equal(13, service.DiscoverCapabilities().Count);
     }
 
     [Fact]

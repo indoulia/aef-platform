@@ -38,6 +38,8 @@ public static class McpToolInvoker
         ["aef_plan_engineering"] = new("WFL-DEL-0006", "plan"),
         ["aef_analyze_repository"] = new("WFL-DEL-0008", "analyze"),
         ["aef_validate_repository"] = new("REPO-VALIDATION", "validate"),
+        ["aef_refine_prompt"] = new("PROMPT-GROUNDING", "refine prompt"),
+        ["aef_check_change"] = new("CHANGE-CHECK", "check change"),
         ["aef_plan_migration"] = new("WFL-DEL-0009", "migrate"),
         ["aef_plan_maintenance"] = new("WFL-DEL-0011", "maintenance"),
         ["aef_manage_platform_lifecycle"] = new("WFL-DEL-0012", "platform lifecycle"),

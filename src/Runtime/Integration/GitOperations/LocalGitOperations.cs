@@ -137,6 +137,91 @@ public sealed class LocalGitOperations : IGitOperations
         return new MergeReadinessResult(reasons.Count == 0, reasons);
     }
 
+    public GitChangedFilesResult ChangedFilesSince(string? baseRef)
+    {
+        try
+        {
+            if (!Directory.Exists(_repositoryRoot) || !IsGitRepository())
+            {
+                return GitChangedFilesResult.Failed($"'{_repositoryRoot}' is not a git repository.");
+            }
+
+            if (RunGit("rev-parse", "--verify", "--quiet", "HEAD").ExitCode != 0)
+            {
+                return GitChangedFilesResult.Failed("The repository has no commits yet.");
+            }
+
+            string baseCommit;
+            string description;
+            if (!string.IsNullOrWhiteSpace(baseRef))
+            {
+                var verified = RunGit("rev-parse", "--verify", "--quiet", baseRef + "^{commit}");
+                if (verified.ExitCode != 0)
+                {
+                    return GitChangedFilesResult.Failed($"Base ref '{baseRef}' does not exist in the repository.");
+                }
+
+                baseCommit = verified.StandardOutput.Trim();
+                description = baseRef;
+            }
+            else
+            {
+                var defaultBranch = ResolveDefaultBranch();
+                var mergeBase = defaultBranch is null ? default : RunGit("merge-base", "HEAD", defaultBranch);
+                if (defaultBranch is null || mergeBase.ExitCode != 0)
+                {
+                    baseCommit = "HEAD";
+                    description = "HEAD (no default branch could be resolved; only uncommitted changes were examined)";
+                }
+                else
+                {
+                    baseCommit = mergeBase.StandardOutput.Trim();
+                    description = $"merge-base with {defaultBranch} ({baseCommit[..Math.Min(7, baseCommit.Length)]})";
+                }
+            }
+
+            var tracked = RunGit("-c", "core.quotepath=off", "diff", "--name-only", baseCommit);
+            if (tracked.ExitCode != 0)
+            {
+                return GitChangedFilesResult.Failed($"git diff failed: {tracked.StandardError.Trim()}");
+            }
+
+            var untracked = RunGit("-c", "core.quotepath=off", "ls-files", "--others", "--exclude-standard");
+            var files = Lines(tracked.StandardOutput).Concat(Lines(untracked.StandardOutput))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(file => file, StringComparer.Ordinal)
+                .ToList();
+
+            return new GitChangedFilesResult(true, null, description, files);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception or IOException)
+        {
+            return GitChangedFilesResult.Failed($"git could not be run: {ex.Message}");
+        }
+    }
+
+    private string? ResolveDefaultBranch()
+    {
+        var remoteHead = RunGit("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD");
+        if (remoteHead.ExitCode == 0 && remoteHead.StandardOutput.Trim().Length > 0)
+        {
+            return remoteHead.StandardOutput.Trim();
+        }
+
+        foreach (var candidate in new[] { "main", "master" })
+        {
+            if (RunGit("rev-parse", "--verify", "--quiet", $"refs/heads/{candidate}").ExitCode == 0)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> Lines(string output) =>
+        output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line.TrimEnd('\r').Replace('\\', '/')).Where(line => line.Length > 0);
+
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(120);
 
     private (int ExitCode, string StandardOutput, string StandardError) RunGit(params string[] arguments)

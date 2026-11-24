@@ -112,6 +112,8 @@ public sealed class EngineeringExecutionPipeline
             "WFL-DEL-0009" => FromMigrationPlanning(request),
             "WFL-DEL-0011" => FromMaintenancePlanning(request),
             "WFL-DEL-0012" => FromPlatformLifecycle(request),
+            "PROMPT-GROUNDING" => FromPromptGrounding(request),
+            "CHANGE-CHECK" => FromChangeCheck(request),
             _ => new ExecutionResult(false, null, null, new[] { $"No executable dispatch target for capability '{routingResult.TargetCapabilityId}'." }, null, TimeSpan.Zero, null, null),
         };
     }
@@ -459,6 +461,102 @@ public sealed class EngineeringExecutionPipeline
 
         return new ExecutionResult(true, "WFL-DEL-0008", "AGT-EXE-0015", diagnosticsSummary, new[] { understanding.Answer }, TimeSpan.Zero, synthesis.ReportInstance.ReportType, nextStep,
             RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths);
+    }
+
+    // Agent grounding layer: the prompt to ground travels in Payload["UserPrompt"]; UserRequest is only the routing literal.
+    private ExecutionResult FromPromptGrounding(EngineeringRequest request)
+    {
+        const string capabilityId = "PROMPT-GROUNDING";
+        const string agentId = "AGT-EXE-0015";
+
+        var repositoryContext = TryGetRepositoryContext(request);
+        if (repositoryContext is null)
+        {
+            return MissingRepositoryContext(capabilityId, agentId);
+        }
+
+        if (!repositoryContext.IsReadable)
+        {
+            return new ExecutionResult(false, capabilityId, agentId,
+                new[] { $"Repository '{repositoryContext.RepositoryName}' at '{repositoryContext.RepositoryRoot}' is not readable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        if (!request.Payload!.TryGetValue("UserPrompt", out var promptObj) || promptObj is not string prompt || string.IsNullOrWhiteSpace(prompt))
+        {
+            return new ExecutionResult(false, capabilityId, agentId,
+                new[] { "Payload must carry a non-empty UserPrompt - the user's request to ground." }, null, TimeSpan.Zero, null, null,
+                RepositoryAnalyzed: repositoryContext.RepositoryName);
+        }
+
+        var brief = InvokeSkill<DomainContent.PromptGrounding.GroundedBrief>(
+            capabilityId, "PromptGroundingRequest", new DomainContent.PromptGrounding.PromptGroundingRequest(prompt, repositoryContext), request.ProjectProfileId, "PromptGrounding");
+        if (brief is null)
+        {
+            return new ExecutionResult(false, capabilityId, agentId, new[] { "PROMPT-GROUNDING is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        return new ExecutionResult(true, capabilityId, agentId, brief.OpenQuestions, brief.AcceptanceChecks, TimeSpan.Zero, null, null,
+            RepositoryAnalyzed: repositoryContext.RepositoryName, FilesChanged: repositoryContext.ChangedPaths,
+            Document: DomainContent.PromptGrounding.GroundedBriefRenderer.Render(brief));
+    }
+
+    // Agent grounding layer: evidence about a change the calling agent already made. Fails only when the build/test
+    // run completed and failed, or git could not be read - an unavailable tool is a note, not a failure.
+    private ExecutionResult FromChangeCheck(EngineeringRequest request)
+    {
+        const string capabilityId = "CHANGE-CHECK";
+        const string agentId = "AGT-EXE-0015";
+
+        var repositoryContext = TryGetRepositoryContext(request);
+        if (repositoryContext is null)
+        {
+            return MissingRepositoryContext(capabilityId, agentId);
+        }
+
+        if (!repositoryContext.IsReadable)
+        {
+            return new ExecutionResult(false, capabilityId, agentId,
+                new[] { $"Repository '{repositoryContext.RepositoryName}' at '{repositoryContext.RepositoryRoot}' is not readable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var payload = request.Payload!;
+        string? Text(string key) => payload.TryGetValue(key, out var value) && value is string text && !string.IsNullOrWhiteSpace(text) ? text : null;
+        IReadOnlyList<string> Lines(string key) =>
+            Text(key)?.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim()).Where(line => line.Length > 0).ToList() ?? new List<string>();
+
+        var changes = new Integration.GitOperations.LocalGitOperations(repositoryContext.RepositoryRoot).ChangedFilesSince(Text("BaseRef"));
+        var skipValidation = string.Equals(Text("SkipBuildAndTests"), "true", StringComparison.OrdinalIgnoreCase);
+
+        DomainContent.DeliveryExecution.ValidationOutcome? validation = null;
+        if (changes.Succeeded && changes.Files.Count > 0 && !skipValidation)
+        {
+            validation = InvokeSkill<DomainContent.DeliveryExecution.ValidationOutcome>("REPO-VALIDATION", "RepositoryContext", repositoryContext, request.ProjectProfileId, "ChangeCheck-Validation");
+        }
+
+        var report = InvokeSkill<DomainContent.ChangeCheck.ChangeCheckReport>(
+            capabilityId, "ChangeCheckRequest",
+            new DomainContent.ChangeCheck.ChangeCheckRequest(repositoryContext, changes, validation, Lines("AcceptanceChecks"), Lines("ExpectedFiles")),
+            request.ProjectProfileId, "ChangeCheck");
+        if (report is null)
+        {
+            return new ExecutionResult(false, capabilityId, agentId, new[] { "CHANGE-CHECK is not invocable." }, null, TimeSpan.Zero, null, null);
+        }
+
+        var diagnostics = report.Notes
+            .Concat(report.FilesOutsideExpected.Select(file => $"Changed outside the expected files: {file}"))
+            .Concat(report.Checks.Where(check => check.Status == DomainContent.ChangeCheck.ChangeCheckSkillBehavior.NotMet).Select(check => $"Not met: {check.Check}"))
+            .Concat(report.FilesChanged.Select(file => $"Changed: {file}"))
+            .ToList();
+
+        return new ExecutionResult(
+            changes.Succeeded && report.BuildAndTestsPassed != false,
+            capabilityId, agentId, diagnostics,
+            report.Checks.Select(check => $"[{check.Status}] {check.Check}").ToList(),
+            TimeSpan.Zero, null, null,
+            RepositoryAnalyzed: repositoryContext.RepositoryName,
+            FilesChanged: report.FilesChanged,
+            TestsExecuted: validation is { IsEscalated: false },
+            Document: DomainContent.ChangeCheck.ChangeCheckRenderer.Render(report));
     }
 
     private ExecutionResult FromRepositoryValidation(EngineeringRequest request)

@@ -73,6 +73,8 @@ public class EngineeringArchitectureManifestTests
         Assert.Contains("SKL-EXE-0033", ids);
         Assert.Contains("WFL-DEL-0008", ids);
         Assert.Contains("REPO-VALIDATION", ids);
+        Assert.Contains("PROMPT-GROUNDING", ids);
+        Assert.Contains("CHANGE-CHECK", ids);
     }
 }
 

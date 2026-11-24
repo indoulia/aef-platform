@@ -18,4 +18,7 @@ public interface IGitOperations
     GitOperationResult Commit(string message);
 
     MergeReadinessResult CheckMergeReadiness(string branchName, string defaultBranchName);
+
+    // Null baseRef means the merge-base of HEAD with the default branch. Never throws; a failure carries its reason.
+    GitChangedFilesResult ChangedFilesSince(string? baseRef);
 }
