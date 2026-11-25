@@ -36,11 +36,22 @@ In the marksy-api task the brief the agent received was accurate but not useful:
 
 The grounding tools add two tool calls and several thousand characters to every task. On prompts like these, a capable agent already locates the code by searching.
 
+## Second run: haiku, after slimming the tool output (2026-11-25)
+
+Six further tasks, one run per arm, `haiku`, user settings excluded, same script.
+
+- Right files changed: plain 11 of 16, with AEF 15 of 16. Neither arm changed a file the real commit did not touch.
+- The gap came almost entirely from marksy-os `4f4b377`, where the plain run changed nothing. Rerun three times per arm, both arms changed 3 of 3 files every time, so that result was run-to-run variation. Without it the totals are 14 of 16 against 15 of 16.
+- Cost: plain $0.110, with AEF $0.141 over the six tasks; level on the three reruns ($0.057 against $0.055).
+- Time: with AEF 5 to 25 seconds slower per task. One marksy-api run took 683 s against 62 s at the same cost and turn count; not investigated, probably the first `tokensave` index of the clone.
+
+Conclusion: across nine tasks on two models there is no measured benefit on clear, commit-subject prompts. A cheaper model did not change that.
+
 ## Where the tools are expected to matter, not yet measured
 
 - A prompt that names something that does not exist. The brief turns that into a question with the closest real matches, instead of the agent building on it. Covered by tests, not by a with/without run.
 - A prompt that names files. They are confirmed on disk and the check step then flags changes outside them.
-- Weaker or cheaper agent models, and larger repositories, where the agent's own search is less reliable.
+- Larger repositories, where the agent's own search is less reliable.
 
 ## Limits of this pilot
 
