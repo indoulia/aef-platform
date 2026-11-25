@@ -4,6 +4,10 @@ AEF is a read-only grounding layer for coding agents such as Claude Code and Cod
 
 It does not replace the agent and it never writes code. The agent stays in charge; AEF only supplies checked facts.
 
+## How it fits in
+
+![You send a request to your agent; the agent calls aef_refine_prompt and gets a brief, asks you any open questions, edits the code, then optionally calls aef_check_change and reports back](docs/images/aef-flow.svg)
+
 ## What it does
 
 AEF adds two tools to your agent over MCP.
@@ -16,20 +20,96 @@ AEF adds two tools to your agent over MCP.
 - **Build and test**: the usual command for the detected stack.
 - **Done when**: checkable conditions for the change.
 
-```
-## Verified facts
-- `.gitignore` exists (.gitignore)
-
-## Open questions
-- The prompt mentions `NoSuchThingAnywhere`, which was not found in the repository. Which file or symbol did you mean?
-
-## Where to work
-- Work in: .gitignore.
-```
-
 **`aef_check_change`** reports on a change the agent has made: files changed, files outside the expected set, affected tests, the build and test result, and each acceptance check as `met`, `not met` or `cannot tell`. A check it cannot evaluate is never assumed met.
 
 Both tools only read. They make no model calls, so AEF has no API bill of its own. A typical brief is about 150 tokens and the tool list about 270 tokens per session.
+
+## Examples
+
+These are real outputs from running AEF on this repository.
+
+### A request that names real code
+
+Request: *"Make BuildSystemDetector return the gradle wrapper on Windows"*
+
+```
+## Verified facts
+- `BuildSystemDetector` is a class (src/Runtime/DomainContent/RepositoryValidation/BuildSystemDetector.cs:8)
+
+## Where to work
+- Work in: src/Runtime/DomainContent/RepositoryValidation/BuildSystemDetector.cs.
+- Candidate files (confirm which apply before editing): tests/Runtime.Tests/Integration/DeliveryExecution/ProcessVerificationRunnerTests.cs, src/Runtime/Integration/RepositoryScanning/StackDetector.cs, tests/Runtime.Tests/DomainContent/RepositoryValidation/BuildSystemDetectorTests.cs, ...
+- Covering tests: tests/Runtime.Tests/DomainContent/RepositoryValidation/BuildSystemDetectorTests.cs, tests/Runtime.Tests/Integration/RepositoryScanning/StackDetectorTests.cs, ...
+
+## Build and test
+- `dotnet test` (conventional for the stack, unverified)
+
+## Done when
+- `dotnet test` exits 0
+- Changes are confined to the files under Where to work, or each extra file is explained
+- Tests in tests/Runtime.Tests/DomainContent/RepositoryValidation/BuildSystemDetectorTests.cs pass
+```
+
+The agent starts in the right file with its tests, instead of searching for them.
+
+### A request that names something that does not exist
+
+Request: *"Fix the retry logic in OrderService.Submit"* (there is no `OrderService` in this repository)
+
+```
+## Open questions
+- The prompt mentions `OrderService.Submit`, which was not found in the repository. Closest matches: `FindSymbol` (tests/Runtime.Tests/Execution/EngineeringExecutionPipelineTests.cs:403), ... Which did you mean?
+
+## Done when
+- `dotnet test` exits 0
+- Every open question above is answered before editing
+```
+
+The agent is told to ask you, rather than invent an `OrderService` or edit something else. The "closest matches" are a text search and can be poor, as here.
+
+### A vague request
+
+Request: *"make it faster"*
+
+```
+## Where to work
+- Candidate files (confirm which apply before editing): README.md, tests/Runtime.Tests/DomainContent/PromptGrounding/PromptGroundingTests.cs.
+
+## Build and test
+- `dotnet test` (conventional for the stack, unverified)
+```
+
+With nothing specific named there is nothing to verify, so the brief adds little. This is the case where the call is not worth making.
+
+### Checking a change
+
+After an edit that was meant to touch only `README.md` but also added an image, `aef_check_change` with `ExpectedFiles` set to `README.md`:
+
+```
+## Files changed
+- docs/images/aef-flow.svg
+
+## Outside the expected files
+- docs/images/aef-flow.svg
+
+## Acceptance checks
+- [not met] Changes are confined to the files under Where to work, or each extra file is explained - Changed outside the expected set: docs/images/aef-flow.svg. Explain or revert each.
+- [cannot tell] `dotnet test` exits 0 - Build and tests were not run.
+- [cannot tell] The diagram is easy to read - Not machine-checkable; needs human or agent review.
+
+## Notes
+- Compared against merge-base with origin/main (93e401d).
+- Build and tests were not run.
+```
+
+It flags the file outside the expected set and refuses to guess on checks it cannot evaluate.
+
+### Calling it from the command line
+
+```
+aef-cli execute --user-request "refine prompt" --project-profile-id p --payload-json "{\"UserPrompt\":\"add retries to OrderService\",\"RepositoryName\":\"shop\",\"RepositoryRoot\":\"C:/src/shop\"}"
+aef-cli execute --user-request "check change" --project-profile-id p --payload-json "{\"RepositoryName\":\"shop\",\"RepositoryRoot\":\"C:/src/shop\",\"SkipBuildAndTests\":\"true\"}"
+```
 
 ## Does it help?
 
