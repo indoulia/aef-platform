@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 470" width="920" height="470" role="img" aria-labelledby="t d" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <title id="t">How AEF fits into a coding agent's work</title>
+  <desc id="d">You send a request to your coding agent. The agent calls aef_refine_prompt, AEF checks the request against the repository and returns a brief. The agent asks you any open questions, edits the code itself, then calls aef_check_change and reports back.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#475569"/>
+    </marker>
+  </defs>
+  <rect width="920" height="470" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+
+  <!-- lane headers -->
+  <g font-size="15" font-weight="600" text-anchor="middle">
+    <rect x="40" y="24" width="160" height="40" rx="8" fill="#f1f5f9" stroke="#cbd5e1"/>
+    <text x="120" y="49" fill="#0f172a">You</text>
+    <rect x="300" y="24" width="220" height="40" rx="8" fill="#f1f5f9" stroke="#cbd5e1"/>
+    <text x="410" y="49" fill="#0f172a">Claude Code / Codex</text>
+    <rect x="620" y="24" width="260" height="40" rx="8" fill="#dbeafe" stroke="#60a5fa"/>
+    <text x="750" y="49" fill="#1e3a8a">AEF (read-only, no model calls)</text>
+  </g>
+
+  <!-- lifelines -->
+  <g stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="4 5">
+    <line x1="120" y1="64" x2="120" y2="440"/>
+    <line x1="410" y1="64" x2="410" y2="440"/>
+    <line x1="750" y1="64" x2="750" y2="440"/>
+  </g>
+
+  <g font-size="13" fill="#0f172a" stroke-width="1.6">
+    <!-- 1 -->
+    <line x1="120" y1="100" x2="404" y2="100" stroke="#475569" marker-end="url(#a)"/>
+    <text x="262" y="92" text-anchor="middle">1. Your request</text>
+
+    <!-- 2 -->
+    <line x1="410" y1="145" x2="744" y2="145" stroke="#475569" marker-end="url(#a)"/>
+    <text x="580" y="137" text-anchor="middle" font-family="Consolas, Menlo, monospace">2. aef_refine_prompt</text>
+
+    <!-- AEF work -->
+    <rect x="640" y="160" width="220" height="52" rx="6" fill="#eff6ff" stroke="#93c5fd"/>
+    <text x="750" y="181" text-anchor="middle" fill="#1e3a8a">Checks named files and symbols</text>
+    <text x="750" y="199" text-anchor="middle" fill="#1e3a8a">against the repository</text>
+
+    <!-- 3 -->
+    <line x1="750" y1="240" x2="416" y2="240" stroke="#475569" marker-end="url(#a)"/>
+    <text x="580" y="232" text-anchor="middle">3. Brief: facts, open questions, where to work</text>
+
+    <!-- 4 -->
+    <line x1="410" y1="285" x2="126" y2="285" stroke="#475569" stroke-dasharray="6 4" marker-end="url(#a)"/>
+    <text x="262" y="277" text-anchor="middle">4. Asks you any open questions</text>
+
+    <!-- 5 -->
+    <rect x="320" y="302" width="180" height="34" rx="6" fill="#f8fafc" stroke="#cbd5e1"/>
+    <text x="410" y="324" text-anchor="middle">5. Agent edits the code</text>
+
+    <!-- 6 -->
+    <line x1="410" y1="368" x2="744" y2="368" stroke="#475569" marker-end="url(#a)"/>
+    <text x="580" y="360" text-anchor="middle" font-family="Consolas, Menlo, monospace">6. aef_check_change (optional)</text>
+
+    <!-- 7 -->
+    <line x1="750" y1="400" x2="416" y2="400" stroke="#475569" marker-end="url(#a)"/>
+    <text x="580" y="392" text-anchor="middle">7. Report: files changed, tests, checks met</text>
+
+    <!-- 8 -->
+    <line x1="410" y1="430" x2="126" y2="430" stroke="#475569" marker-end="url(#a)"/>
+    <text x="262" y="422" text-anchor="middle">8. Result</text>
+  </g>
+</svg>
