@@ -45,7 +45,7 @@ public class McpExecutableStartupTests
         return completed == readTask ? await readTask : null;
     }
 
-    private static Process StartMcpProcess()
+    private static Process StartMcpProcess(bool exposeAllTools = false)
     {
         var startInfo = new ProcessStartInfo("dotnet")
         {
@@ -56,6 +56,10 @@ public class McpExecutableStartupTests
             UseShellExecute = false,
         };
         startInfo.ArgumentList.Add(LocateMcpExecutablePath());
+        if (exposeAllTools)
+        {
+            startInfo.Environment["Mcp__ExposeAllTools"] = "true";
+        }
 
         return Process.Start(startInfo)!;
     }
@@ -115,6 +119,8 @@ public class McpExecutableStartupTests
         ["WFL-DEL-0007"] = "aef_review_specification",
         ["WFL-DEL-0008"] = "aef_analyze_repository",
         ["REPO-VALIDATION"] = "aef_validate_repository",
+        ["PROMPT-GROUNDING"] = "aef_refine_prompt",
+        ["CHANGE-CHECK"] = "aef_check_change",
         ["WFL-DEL-0009"] = "aef_plan_migration",
         ["WFL-DEL-0011"] = "aef_plan_maintenance",
         ["WFL-DEL-0012"] = "aef_manage_platform_lifecycle",
@@ -127,7 +133,7 @@ public class McpExecutableStartupTests
         var expectedCapabilities = new EngineeringAgentCapabilityCatalog().Discover();
         Assert.Equal(ExpectedToolNames.Count, expectedCapabilities.Count);
 
-        using var process = StartMcpProcess();
+        using var process = StartMcpProcess(exposeAllTools: true);
         try
         {
             const string initializeRequest = """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"McpExecutableStartupTests","version":"1.0.0"}}}""";
@@ -282,6 +288,176 @@ public class McpExecutableStartupTests
             {
                 process.Kill(entireProcessTree: true);
             }
+        }
+    }
+
+    // Cost: every listed tool's schema is sent to the model in every session, so only the two grounding
+    // tools are listed unless Mcp:ExposeAllTools is set. Unlisted tools remain callable.
+    [Fact]
+    public async Task McpExecutable_ToolsList_ByDefault_ListsOnlyTheTwoGroundingTools()
+    {
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            await process.StandardInput.WriteLineAsync("""{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}""");
+            await process.StandardInput.FlushAsync();
+            var response = await ReadLineWithTimeoutAsync(process.StandardOutput, TimeSpan.FromSeconds(30));
+
+            using var document = JsonDocument.Parse(response!);
+            var tools = document.RootElement.GetProperty("result").GetProperty("tools");
+            var names = tools.EnumerateArray().Select(tool => tool.GetProperty("name").GetString()).OrderBy(name => name).ToArray();
+            Assert.Equal(new[] { "aef_check_change", "aef_refine_prompt" }, names);
+            Assert.True(tools.GetRawText().Length < 1100, $"tool list is {tools.GetRawText().Length} characters");
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    private static string LocateRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (!File.Exists(Path.Combine(directory!.FullName, "AefPlatform.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        return directory.FullName;
+    }
+
+    // Story S8 sweep finding: git children inherited this server's stdin pipe and hung until timeout.
+    [Fact]
+    public async Task McpExecutable_ToolsCall_ForRepositoryTool_AgainstARealGitRepository_RespondsWithoutHanging()
+    {
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            var arguments = JsonSerializer.Serialize(new { RepositoryName = "aef-platform", RepositoryRoot = LocateRepositoryRoot() });
+            using var document = await CallToolAsync(process, "aef_analyze_repository", arguments);
+
+            var result = document.RootElement.GetProperty("result");
+            Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+            Assert.Contains("Completed via WFL-DEL-0008.", result.GetProperty("content")[0].GetProperty("text").GetString());
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task McpExecutable_ToolsCall_RefinePrompt_ReturnsBriefText()
+    {
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            var arguments = JsonSerializer.Serialize(new { UserPrompt = "Fix \"quoting\" in McpToolInvoker and NoSuchThingAnywhere", RepositoryName = "aef-platform", RepositoryRoot = LocateRepositoryRoot() });
+            using var document = await CallToolAsync(process, "aef_refine_prompt", arguments);
+
+            var result = document.RootElement.GetProperty("result");
+            Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+            var text = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+            Assert.Contains("## Open questions", text);
+            Assert.Contains("`NoSuchThingAnywhere`, which was not found", text);
+            Assert.DoesNotContain("\\", text);
+            Assert.DoesNotContain("Completed via", text);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task McpExecutable_ToolsCall_RefinePrompt_RepositoryRootWithSpaces_Succeeds()
+    {
+        var root = Directory.CreateTempSubdirectory("aef mcp spaces ").FullName;
+        File.WriteAllText(Path.Combine(root, "orders.ts"), "export {}");
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            var arguments = JsonSerializer.Serialize(new { UserPrompt = "tidy orders.ts", RepositoryName = "spaces", RepositoryRoot = root });
+            using var document = await CallToolAsync(process, "aef_refine_prompt", arguments);
+
+            var result = document.RootElement.GetProperty("result");
+            Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+            Assert.Contains("- `orders.ts` exists (orders.ts)", result.GetProperty("content")[0].GetProperty("text").GetString());
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task McpExecutable_ToolsCall_CheckChange_ListsTheChangedFile()
+    {
+        var root = Directory.CreateTempSubdirectory("aef-mcp-check-").FullName;
+        void Git(params string[] arguments)
+        {
+            var startInfo = new ProcessStartInfo("git") { WorkingDirectory = root, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            using var git = Process.Start(startInfo)!;
+            git.StandardOutput.ReadToEnd();
+            git.WaitForExit();
+        }
+
+        Git("init", "-b", "main");
+        Git("config", "user.email", "test@example.com");
+        Git("config", "user.name", "Test User");
+        File.WriteAllText(Path.Combine(root, "readme.txt"), "v1");
+        Git("add", "-A");
+        Git("commit", "-m", "initial");
+        File.WriteAllText(Path.Combine(root, "readme.txt"), "v2");
+
+        using var process = StartMcpProcess();
+        try
+        {
+            await InitializeAsync(process);
+            var arguments = JsonSerializer.Serialize(new { RepositoryName = "check", RepositoryRoot = root, SkipBuildAndTests = "true", ExpectedFiles = "other.txt", AcceptanceChecks = "Changes are confined to the files under Where to work, or each extra file is explained" });
+            using var document = await CallToolAsync(process, "aef_check_change", arguments);
+
+            var text = document.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
+            Assert.Contains("## Files changed\n- readme.txt", text);
+            Assert.Contains("## Outside the expected files\n- readme.txt", text);
+            Assert.Contains("- [not met] Changes are confined", text);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+
+            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            {
+                File.SetAttributes(file, FileAttributes.Normal);
+            }
+
+            Directory.Delete(root, recursive: true);
         }
     }
 

@@ -43,6 +43,12 @@ public static class CliOutputFormatter
             lines.Add($"Error: {response.Error.Reason}");
         }
 
+        if (!string.IsNullOrEmpty(response.Evidence.Document))
+        {
+            lines.Add(string.Empty);
+            lines.Add(response.Evidence.Document);
+        }
+
         return string.Join(Environment.NewLine, lines);
     }
 

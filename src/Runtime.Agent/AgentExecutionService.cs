@@ -96,7 +96,7 @@ public sealed class AgentExecutionService : IAgentExecutionInterface
             ? null
             : new ExecutionError(result.PresentedResult ?? "Execution did not complete.", result.Diagnostics);
 
-        var evidence = new ExecutionEvidence(result.Diagnostics, result.ValidationResults, result.RepositoryAnalyzed, result.FilesChanged, result.TestsExecuted);
+        var evidence = new ExecutionEvidence(result.Diagnostics, result.ValidationResults, result.RepositoryAnalyzed, result.FilesChanged, result.TestsExecuted, result.Document);
         var metadata = new ExecutionMetadata(result.ExecutedWorkflowId, result.ExecutedAgentId, result.Duration, startedAt, completedAt);
 
         return new ExecutionResponse(

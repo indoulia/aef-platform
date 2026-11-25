@@ -9,4 +9,5 @@ public sealed record ExecutionEvidence(
     IReadOnlyList<string>? ValidationResults,
     string? RepositoryAnalyzed,
     IReadOnlyList<string>? FilesChanged,
-    bool? TestsExecuted);
+    bool? TestsExecuted,
+    string? Document = null);

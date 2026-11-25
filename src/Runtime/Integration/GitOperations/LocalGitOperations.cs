@@ -137,6 +137,93 @@ public sealed class LocalGitOperations : IGitOperations
         return new MergeReadinessResult(reasons.Count == 0, reasons);
     }
 
+    public GitChangedFilesResult ChangedFilesSince(string? baseRef)
+    {
+        try
+        {
+            if (!Directory.Exists(_repositoryRoot) || !IsGitRepository())
+            {
+                return GitChangedFilesResult.Failed($"'{_repositoryRoot}' is not a git repository.");
+            }
+
+            if (RunGit("rev-parse", "--verify", "--quiet", "HEAD").ExitCode != 0)
+            {
+                return GitChangedFilesResult.Failed("The repository has no commits yet.");
+            }
+
+            string baseCommit;
+            string description;
+            if (!string.IsNullOrWhiteSpace(baseRef))
+            {
+                var verified = RunGit("rev-parse", "--verify", "--quiet", baseRef + "^{commit}");
+                if (verified.ExitCode != 0)
+                {
+                    return GitChangedFilesResult.Failed($"Base ref '{baseRef}' does not exist in the repository.");
+                }
+
+                baseCommit = verified.StandardOutput.Trim();
+                description = baseRef;
+            }
+            else
+            {
+                var defaultBranch = ResolveDefaultBranch();
+                var mergeBase = defaultBranch is null ? default : RunGit("merge-base", "HEAD", defaultBranch);
+                if (defaultBranch is null || mergeBase.ExitCode != 0)
+                {
+                    baseCommit = "HEAD";
+                    description = "HEAD (no default branch could be resolved; only uncommitted changes were examined)";
+                }
+                else
+                {
+                    baseCommit = mergeBase.StandardOutput.Trim();
+                    description = $"merge-base with {defaultBranch} ({baseCommit[..Math.Min(7, baseCommit.Length)]})";
+                }
+            }
+
+            // --relative: when the root is a subdirectory of the repository, report that directory only, relative
+            // to it - the same base "ls-files --others" uses below.
+            var tracked = RunGit("-c", "core.quotepath=off", "diff", "--name-only", "--relative", baseCommit);
+            if (tracked.ExitCode != 0)
+            {
+                return GitChangedFilesResult.Failed($"git diff failed: {tracked.StandardError.Trim()}");
+            }
+
+            var untracked = RunGit("-c", "core.quotepath=off", "ls-files", "--others", "--exclude-standard");
+            var files = Lines(tracked.StandardOutput).Concat(Lines(untracked.StandardOutput))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(file => file, StringComparer.Ordinal)
+                .ToList();
+
+            return new GitChangedFilesResult(true, null, description, files);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception or IOException)
+        {
+            return GitChangedFilesResult.Failed($"git could not be run: {ex.Message}");
+        }
+    }
+
+    private string? ResolveDefaultBranch()
+    {
+        var remoteHead = RunGit("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD");
+        if (remoteHead.ExitCode == 0 && remoteHead.StandardOutput.Trim().Length > 0)
+        {
+            return remoteHead.StandardOutput.Trim();
+        }
+
+        foreach (var candidate in new[] { "main", "master" })
+        {
+            if (RunGit("rev-parse", "--verify", "--quiet", $"refs/heads/{candidate}").ExitCode == 0)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> Lines(string output) =>
+        output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line.TrimEnd('\r').Replace('\\', '/')).Where(line => line.Length > 0);
+
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(120);
 
     private (int ExitCode, string StandardOutput, string StandardError) RunGit(params string[] arguments)
@@ -148,6 +235,11 @@ public sealed class LocalGitOperations : IGitOperations
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // Never inherit the host's stdin: under the MCP stdio server that pipe hangs the child.
+            RedirectStandardInput = true,
+            // git writes UTF-8; the default would decode it with the console code page and mangle non-ASCII paths.
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+            StandardErrorEncoding = System.Text.Encoding.UTF8,
         };
 
         foreach (var argument in arguments)
@@ -157,6 +249,7 @@ public sealed class LocalGitOperations : IGitOperations
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start the 'git' process - is Git installed and on PATH?");
+        process.StandardInput.Close();
 
         // Reading one stream to completion before starting the other
         // deadlocks as soon as the un-drained stream fills its OS pipe

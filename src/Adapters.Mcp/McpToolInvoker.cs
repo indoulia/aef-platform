@@ -38,6 +38,8 @@ public static class McpToolInvoker
         ["aef_plan_engineering"] = new("WFL-DEL-0006", "plan"),
         ["aef_analyze_repository"] = new("WFL-DEL-0008", "analyze"),
         ["aef_validate_repository"] = new("REPO-VALIDATION", "validate"),
+        ["aef_refine_prompt"] = new("PROMPT-GROUNDING", "refine prompt"),
+        ["aef_check_change"] = new("CHANGE-CHECK", "check change"),
         ["aef_plan_migration"] = new("WFL-DEL-0009", "migrate"),
         ["aef_plan_maintenance"] = new("WFL-DEL-0011", "maintenance"),
         ["aef_manage_platform_lifecycle"] = new("WFL-DEL-0012", "platform lifecycle"),
@@ -85,12 +87,28 @@ public static class McpToolInvoker
         return new ExecutionRequest(Guid.NewGuid().ToString("N"), sessionId, spec.RoutingLiteral, projectProfileId, payload);
     }
 
+    private static string Section(string heading, IReadOnlyList<string>? lines) =>
+        lines is null || lines.Count == 0 ? string.Empty : $"\n\n{heading}:\n" + string.Join("\n", lines.Select(line => "- " + line));
+
     public static CallToolResult BuildCallToolResult(ExecutionResponse response)
     {
         var isError = response.Status == ExecutionStatus.Failed;
         var text = isError
             ? response.Error?.Reason ?? "Execution failed."
             : response.PresentedResult ?? response.SuggestedNextStep ?? "Execution completed.";
+
+        // The handoff text alone ("Completed via ...") tells a calling agent nothing; append the evidence.
+        var evidence = response.Evidence;
+        if (!string.IsNullOrEmpty(evidence.Document))
+        {
+            // A document is the whole answer; "Completed via ..." in front of it only costs the caller tokens.
+            text = isError ? text + "\n\n" + evidence.Document : evidence.Document;
+        }
+        else
+        {
+            text += Section("Findings", evidence.Diagnostics);
+            text += Section("Results", evidence.ValidationResults);
+        }
 
         return new CallToolResult
         {

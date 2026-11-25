@@ -58,6 +58,8 @@ public static class EngineeringArchitectureManifest
         new ArchitectureArtifact("SKL-EXE-0033", "Execution"),
         new ArchitectureArtifact("WFL-DEL-0008", "Delivery"),
         new ArchitectureArtifact("REPO-VALIDATION", "Execution"),
+        new ArchitectureArtifact("PROMPT-GROUNDING", "Execution"),
+        new ArchitectureArtifact("CHANGE-CHECK", "Execution"),
         new ArchitectureArtifact("AGT-EXE-0016", "Execution"),
         new ArchitectureArtifact("SKL-EXE-0034", "Execution"),
         new ArchitectureArtifact("SKL-EXE-0035", "Execution"),

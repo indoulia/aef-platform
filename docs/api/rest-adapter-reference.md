@@ -12,6 +12,12 @@ Request body:
 
 Response: `Runtime.Agent.ExecutionResponse` (camelCase JSON), `200 OK` for `Completed`/`NeedsClarification`/most `Failed` outcomes, `404 Not Found` when `sessionId` names an unknown session, `400 Bad Request` for empty `userRequest`/`projectProfileId` or malformed JSON, `415 Unsupported Media Type` for a non-JSON `Content-Type`, `403 Forbidden` if the security seam denies the request.
 
+`evidence.document` (string or `null`) carries a capability's full written output when it has one. The two grounding capabilities use it: send `"userRequest": "refine prompt"` or `"userRequest": "check change"` with their arguments in `payload`. Arguments and output are described in `docs/mcp/mcp-adapter-reference.md`.
+
+```json
+{ "userRequest": "refine prompt", "projectProfileId": "p", "payload": { "UserPrompt": "add retries to OrderService", "RepositoryName": "shop", "RepositoryRoot": "C:/src/shop" } }
+```
+
 ## `GET /api/v1/capabilities`
 
 Returns the full `CapabilityDescriptor[]` catalog. Always `200 OK`.

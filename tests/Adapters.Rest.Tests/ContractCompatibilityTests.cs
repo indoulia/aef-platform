@@ -37,6 +37,7 @@ public class ContractCompatibilityTests : IClassFixture<WebApplicationFactory<Pr
 
         var evidence = root.GetProperty("evidence");
         AssertProperty(evidence, "diagnostics", JsonValueKind.Array);
+        AssertProperty(evidence, "document", JsonValueKind.Null);
 
         var metadata = root.GetProperty("metadata");
         AssertProperty(metadata, "executedCapabilityId", JsonValueKind.String);

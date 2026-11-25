@@ -85,6 +85,8 @@ public class McpToolInvokerTests
     [InlineData("aef_plan_engineering", "plan")]
     [InlineData("aef_analyze_repository", "analyze")]
     [InlineData("aef_validate_repository", "validate")]
+    [InlineData("aef_refine_prompt", "refine prompt")]
+    [InlineData("aef_check_change", "check change")]
     [InlineData("aef_plan_migration", "migrate")]
     [InlineData("aef_plan_maintenance", "maintenance")]
     [InlineData("aef_manage_platform_lifecycle", "platform lifecycle")]
@@ -138,5 +140,60 @@ public class McpToolInvokerTests
         Assert.False(result.IsError);
         var text = Assert.IsType<ModelContextProtocol.Protocol.TextContentBlock>(Assert.Single(result.Content));
         Assert.Equal("Here is the result.", text.Text);
+    }
+
+    [Fact]
+    public void BuildExecutionRequest_RefinePrompt_UsesFixedLiteral_AndKeepsUserPromptInPayload()
+    {
+        var arguments = new Dictionary<string, System.Text.Json.JsonElement>
+        {
+            ["UserPrompt"] = System.Text.Json.JsonSerializer.SerializeToElement("plan the epic feature migration"),
+            ["RepositoryName"] = System.Text.Json.JsonSerializer.SerializeToElement("repo"),
+            ["RepositoryRoot"] = System.Text.Json.JsonSerializer.SerializeToElement("C:/my repo"),
+        };
+
+        var request = McpToolInvoker.BuildExecutionRequest("aef_refine_prompt", arguments);
+
+        Assert.Equal("refine prompt", request.UserRequest);
+        Assert.Equal("plan the epic feature migration", request.Payload!["UserPrompt"]);
+        Assert.Equal("C:/my repo", request.Payload["RepositoryRoot"]);
+    }
+
+    private static ExecutionResponse Response(ExecutionStatus status, string? presented, ExecutionEvidence evidence, ExecutionError? error = null) =>
+        new("req-1", null, status, error, presented, null, evidence,
+            new ExecutionMetadata(null, null, TimeSpan.Zero, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+
+    private static string TextOf(ModelContextProtocol.Protocol.CallToolResult result) =>
+        Assert.IsType<ModelContextProtocol.Protocol.TextContentBlock>(Assert.Single(result.Content)).Text;
+
+    [Fact]
+    public void BuildCallToolResult_WithDocument_ReturnsTheDocumentOnly()
+    {
+        var evidence = new ExecutionEvidence(new[] { "an open question" }, new[] { "a check" }, null, null, null, Document: "# Brief\nbody");
+
+        var result = McpToolInvoker.BuildCallToolResult(Response(ExecutionStatus.Completed, "Completed via PROMPT-GROUNDING.", evidence));
+
+        Assert.Equal("# Brief\nbody", TextOf(result)); // the handoff line adds nothing when there is a document
+    }
+
+    [Fact]
+    public void BuildCallToolResult_WithoutDocument_AppendsDiagnosticsAndValidationResults()
+    {
+        var evidence = new ExecutionEvidence(new[] { "[Pass] Test Convention: found" }, new[] { "answer" }, null, null, null);
+
+        var result = McpToolInvoker.BuildCallToolResult(Response(ExecutionStatus.Completed, "Completed via WFL-DEL-0008.", evidence));
+
+        Assert.Equal("Completed via WFL-DEL-0008.\n\nFindings:\n- [Pass] Test Convention: found\n\nResults:\n- answer", TextOf(result));
+    }
+
+    [Fact]
+    public void BuildCallToolResult_Failed_ReturnsReasonThenDiagnostics_IsErrorTrue()
+    {
+        var evidence = new ExecutionEvidence(new[] { "npm is not installed" }, null, null, null, null);
+
+        var result = McpToolInvoker.BuildCallToolResult(Response(ExecutionStatus.Failed, null, evidence, new ExecutionError("Execution failed.", Array.Empty<string>())));
+
+        Assert.True(result.IsError);
+        Assert.Equal("Execution failed.\n\nFindings:\n- npm is not installed", TextOf(result));
     }
 }

@@ -42,6 +42,77 @@ public sealed class ProcessVerificationRunnerTests
     }
 
     [Fact]
+    public void WindowsBatchShimOnPath_LikeNpm_IsRunnable()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // npm is npm.cmd only on Windows; CreateProcess cannot launch a .cmd directly
+        }
+
+        var directory = Directory.CreateTempSubdirectory("aef-shim-").FullName;
+        var originalPath = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "aef-fake-npm.cmd"), "@echo shim ran %1\r\n@exit /b 3\r\n");
+            Environment.SetEnvironmentVariable("PATH", directory + Path.PathSeparator + originalPath);
+
+            var result = new ProcessVerificationRunner().Run(directory, "aef-fake-npm", new[] { "test" });
+
+            Assert.Equal(3, result.ExitCode);
+            Assert.Contains("shim ran test", result.StandardOutput);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", originalPath);
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RepositoryLocalWrapper_LikeGradlew_IsRunnableFromTheWorkingDirectory()
+    {
+        var directory = Directory.CreateTempSubdirectory("aef-R&D-wrapper-").FullName;
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                File.WriteAllText(Path.Combine(directory, "gradlew.bat"), "@echo wrapper ran %1\r\n@exit /b 0\r\n");
+            }
+            else
+            {
+                var script = Path.Combine(directory, "gradlew");
+                File.WriteAllText(script, "#!/bin/sh\necho wrapper ran $1\n");
+                File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+
+            var result = new ProcessVerificationRunner().Run(directory, "gradlew", new[] { "test" });
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains("wrapper ran test", result.StandardOutput);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ToolThatIsNotAKnownWrapper_IsNotPickedUpFromTheWorkingDirectory()
+    {
+        var directory = Directory.CreateTempSubdirectory("aef-shadow-").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, OperatingSystem.IsWindows() ? "aef-no-such-tool.cmd" : "aef-no-such-tool"), "@echo shadowed");
+
+            Assert.Throws<InvalidOperationException>(() => new ProcessVerificationRunner().Run(directory, "aef-no-such-tool", new[] { "test" }));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void EmptyCommand_ThrowsArgumentException()
     {
         var runner = new ProcessVerificationRunner();

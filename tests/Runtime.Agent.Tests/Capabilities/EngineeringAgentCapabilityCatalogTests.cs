@@ -8,6 +8,7 @@ public class EngineeringAgentCapabilityCatalogTests
     {
         "WFL-DEL-0001", "WFL-DEL-0004", "WFL-DEL-0005", "WFL-DEL-0006",
         "WFL-DEL-0007", "WFL-DEL-0008", "WFL-DEL-0009", "WFL-DEL-0011", "WFL-DEL-0012", "SKL-EXE-0018", "REPO-VALIDATION",
+        "PROMPT-GROUNDING", "CHANGE-CHECK",
     };
 
     [Fact]

@@ -11,6 +11,16 @@ public class CliOutputFormatterTests
         new ExecutionMetadata("WFL-DEL-0001", null, TimeSpan.FromSeconds(1), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
 
     [Fact]
+    public void FormatExecutionResponse_TextMode_PrintsTheEvidenceDocument()
+    {
+        var response = SampleResponse() with { Evidence = new ExecutionEvidence(Array.Empty<string>(), null, null, null, null, Document: "## Goal\nthe brief") };
+
+        var formatted = CliOutputFormatter.FormatExecutionResponse(response, "text");
+
+        Assert.EndsWith("## Goal\nthe brief", formatted);
+    }
+
+    [Fact]
     public void FormatExecutionResponse_TextMode_ContainsStatusAndPresentedResult()
     {
         var formatted = CliOutputFormatter.FormatExecutionResponse(SampleResponse(), "text");

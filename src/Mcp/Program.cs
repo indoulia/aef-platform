@@ -88,6 +88,7 @@ builder.Services.AddSingleton<IAiProvider>(sp =>
     var httpClient = sp.GetRequiredService<HttpClient>();
     return options.Provider switch
     {
+        "ClaudeCli" => new ClaudeCliProvider(options.ClaudeCli.Model),
         "AzureOpenAI" => new AzureOpenAiProvider(httpClient, new AzureOpenAiProviderOptions
         {
             Endpoint = options.AzureOpenAi!.Endpoint,
@@ -133,6 +134,8 @@ builder.Services.AddSingleton(sp =>
         ["SKL-EXE-0032"] = new EngineeringDiagnosticsAndRootCauseAnalysisBehavior(),
         ["SKL-EXE-0033"] = new RecommendationSynthesisAndEvidenceBasedReportingBehavior(),
         ["REPO-VALIDATION"] = new RepositoryValidationSkillBehavior(),
+        ["PROMPT-GROUNDING"] = new Runtime.DomainContent.PromptGrounding.PromptGroundingSkillBehavior(new Runtime.Integration.CodeIntelligence.TokensaveCodeIntelligenceProvider()),
+        ["CHANGE-CHECK"] = new Runtime.DomainContent.ChangeCheck.ChangeCheckSkillBehavior(new Runtime.Integration.CodeIntelligence.TokensaveCodeIntelligenceProvider()),
         ["SKL-EXE-0034"] = new MigrationAssessmentAndTransformationClassificationBehavior(),
         ["SKL-EXE-0035"] = new MigrationStrategyPhasingAndRiskAnalysisBehavior(),
         ["SKL-EXE-0036"] = new MigrationSpecificationAssemblyAndApprovalRequestBehavior(),
@@ -191,9 +194,15 @@ builder.Services
         {
             var catalog = context.Services!.GetRequiredService<ICapabilityCatalog>();
             var capabilityTools = McpToolCatalog.BuildListToolsResult(catalog.Discover()).Tools;
+
+            // Every listed tool's schema is sent to the model in every session. Only the two grounding tools
+            // are listed unless Mcp:ExposeAllTools is set; the others stay callable by name.
+            var exposeAll = string.Equals(context.Services!.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()["Mcp:ExposeAllTools"], "true", StringComparison.OrdinalIgnoreCase);
             var listResult = new ModelContextProtocol.Protocol.ListToolsResult
             {
-                Tools = capabilityTools.Concat(McpInfrastructureTools.Tools).ToList(),
+                Tools = exposeAll
+                    ? capabilityTools.Concat(McpInfrastructureTools.Tools).ToList()
+                    : capabilityTools.Where(tool => McpToolCatalog.DefaultToolNames.Contains(tool.Name)).ToList(),
             };
             stopwatch.Stop();
             McpRequestMetrics.RecordRequest("tools/list", isError: false, stopwatch.Elapsed);

@@ -1,0 +1,8 @@
+﻿{
+  "content": [
+    {
+      "type": "text",
+      "text": "## Code Context\n**Query:** where are MCP tool calls translated into execution requests\n\n### Entry Points\n- **Tools** (csharp_property) - src/Adapters.Mcp/McpInfrastructureTools.cs:19\n  `IReadOnlyList<Tool> Tools`\n- **BuildExecutionRequest_TranscribesArguments_IntoPayload_ViaPayloadNormalization** (method) - tests/Adapters.Mcp.Tests/McpToolInvokerTests.cs:27\n  `[Fact]\r\n    public void BuildExecutionRequest_TranscribesArguments_IntoPayload_ViaPayloadNormalization()`\n- **McpExecutable_ToolsList_ReturnsOneToolPerCatalogCapability** (method) - tests/Mcp.Tests/McpExecutableStartupTests.cs:123\n  `[Fact]\r\n    public async Task McpExecutable_ToolsList_ReturnsOneToolPerCatalogCapability()`\n\n### Related Symbols\n- src/Adapters.Mcp/McpInfrastructureTools.cs: Tools:19\n- src/Adapters.Mcp/McpToolInvoker.cs: BuildExecutionRequest:57\n- tests/Adapters.Mcp.Tests/McpToolInvokerTests.cs: BuildExecutionRequest_TranscribesArguments_IntoPayload_ViaPayloadNormalization:27, Json:12, Fact:27\n- tests/Mcp.Tests/McpExecutableStartupTests.cs: McpExecutable_ToolsList_ReturnsOneToolPerCatalogCapability:123\n\n### Code\n_No code blocks extracted._\n\nseen_node_ids: [\"csharp_property:73f9c776800d8b4721b0f1dac53b3394\",\"method:c1c4e55554ac264d465a33e7214d2a1b\",\"method:676f85da4630891e0729cd40b06f14ce\"]\n"
+    }
+  ]
+}

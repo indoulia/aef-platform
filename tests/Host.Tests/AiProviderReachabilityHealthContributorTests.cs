@@ -17,6 +17,32 @@ public class AiProviderReachabilityHealthContributorTests
         return port;
     }
 
+    [Theory]
+    [InlineData(true, RuntimeHealthStatus.Healthy)]
+    [InlineData(false, RuntimeHealthStatus.Unhealthy)]
+    public void Check_ClaudeCliProvider_FollowsWhetherTheCliIsRunnable(bool runnable, RuntimeHealthStatus expected)
+    {
+        var options = Options.Create(new AiProviderOptions { Provider = "ClaudeCli" });
+        var contributor = new AiProviderReachabilityHealthContributor(new HttpClient(), options, () => runnable);
+
+        Assert.Equal(expected, contributor.Check().Status);
+    }
+
+    [Theory]
+    [InlineData("ClaudeCli", true)]
+    [InlineData("OpenAI", true)]
+    [InlineData("SomethingElse", false)]
+    public void Options_ProviderName_IsValidated(string provider, bool expectedValid)
+    {
+        var options = new AiProviderOptions { Provider = provider };
+
+        var valid = System.ComponentModel.DataAnnotations.Validator.TryValidateObject(
+            options, new System.ComponentModel.DataAnnotations.ValidationContext(options), null, validateAllProperties: true);
+
+        Assert.Equal(expectedValid, valid);
+        Assert.Equal("sonnet", options.ClaudeCli.Model);
+    }
+
     [Fact]
     public async Task Check_ReachableUrl_ReturnsHealthy()
     {

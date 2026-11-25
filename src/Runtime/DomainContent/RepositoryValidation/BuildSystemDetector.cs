@@ -15,6 +15,7 @@ public static class BuildSystemDetector
             ["node"] = ("npm", new[] { "test" }),
             ["python"] = ("python", new[] { "-m", "pytest" }),
             ["java"] = ("mvn", new[] { "test" }),
+            ["gradle"] = ("gradlew", new[] { "test" }),
             ["rust"] = ("cargo", new[] { "test" }),
             ["go"] = ("go", new[] { "test", "./..." }),
         };

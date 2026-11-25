@@ -57,6 +57,14 @@ public sealed class EngineeringAgentCapabilityCatalog : ICapabilityCatalog
             "WFL-DEL-0012", "Platform Lifecycle Management",
             "Classifies an Installation/Upgrade/Repair/Reset/Backup/Restore request against AEF's own installation and assembles a Human-Approved Platform Lifecycle Operation Plan. Plans, never executes, the actual operation.",
             new[] { "RepositoryName", "RepositoryRoot" }, "Synchronous"),
+        new CapabilityDescriptor(
+            "PROMPT-GROUNDING", "Prompt Grounding",
+            "Call once before editing when the request names a file, symbol or identifier. Checks each against the repository: returns file:line for what exists and a question for what does not, plus candidate files and the build command. Skip it when the request names nothing specific. Read-only.",
+            new[] { "UserPrompt", "RepositoryName", "RepositoryRoot" }, "Synchronous"),
+        new CapabilityDescriptor(
+            "CHANGE-CHECK", "Change Check",
+            "Optional, after editing: lists files changed since a base, files outside ExpectedFiles, and affected tests. Optional string arguments: BaseRef, ExpectedFiles and AcceptanceChecks (newline-separated), SkipBuildAndTests (\"true\"; otherwise it runs the repository's build and tests, which can take minutes). Never edits source files.",
+            new[] { "RepositoryName", "RepositoryRoot" }, "Synchronous"),
     };
 
     public IReadOnlyList<CapabilityDescriptor> Discover() => Capabilities;
