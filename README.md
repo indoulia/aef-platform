@@ -147,6 +147,67 @@ tokensave init
 
 Republish after pulling new AEF code; the registered server is only as new as the last publish.
 
+### What registration does
+
+`claude mcp add` only records a command. Nothing is installed into Claude Code and nothing runs in the background.
+
+- **Where it is stored.** `-s user` writes the entry to your user configuration, so the server is available in every project. Use `-s project` to write it to a `.mcp.json` file in the repository and share it with your team, or `-s local` to keep it to yourself in one project.
+- **What happens at startup.** Each time a Claude Code session starts, it launches `dotnet <install-dir>/AefPlatform.Mcp.dll` as a child process and talks to it over standard input and output. The server stops when the session ends.
+- **What the agent sees.** The server answers with its tool list: `aef_refine_prompt` and `aef_check_change`, each with a description and its arguments. Claude Code names them `mcp__aef-mcp__aef_refine_prompt` and `mcp__aef-mcp__aef_check_change`.
+
+Check it with:
+
+```
+claude mcp get aef-mcp
+```
+
+It should print `Status: ✓ Connected`. Inside a session, `/mcp` shows the same and lets you reconnect or disable the server. To remove it: `claude mcp remove aef-mcp -s user`.
+
+If it shows as failed to connect, the dll path is usually wrong or stale: publish again and check that the path in `claude mcp get aef-mcp` exists. A session that was already open when you republished needs `/mcp` → reconnect.
+
+For Codex, the equivalent is an entry in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.aef-mcp]
+command = "dotnet"
+args = ["<install-dir>/AefPlatform.Mcp.dll"]
+```
+
+### How the agent decides to call it
+
+There is no hook or trigger. The agent reads the tool descriptions and decides for itself, the same way it decides to read a file or run a search. The descriptions are written to steer that choice:
+
+- `aef_refine_prompt`: "Call once before editing when the request names a file, symbol or identifier. ... Skip it when the request names nothing specific."
+- `aef_check_change`: "Optional, after editing: lists files changed since a base, files outside ExpectedFiles, and affected tests. ..."
+
+So for "add a timeout to `ExternalProcess.Run`" the agent is expected to call `aef_refine_prompt` first, and for "tidy this up" it is expected not to. It passes your request as `UserPrompt` and the current working directory as `RepositoryRoot`.
+
+Because the choice is the model's, it is not guaranteed. In the measured runs the prompt told the agent to call the tools, so how often an agent calls them unprompted has not been measured. Two things make it reliable:
+
+**Tell the agent in your project instructions.** Add this to the repository's `CLAUDE.md` (or `AGENTS.md` for Codex):
+
+```markdown
+Before editing code for a request that names a file, symbol or identifier, call
+`aef_refine_prompt` with the request, this repository's name and its root path.
+Ask me any open questions it returns before editing.
+When the change is finished, call `aef_check_change` with `SkipBuildAndTests` "true".
+```
+
+**Allow the tools so there is no permission prompt.** In `.claude/settings.json` (project) or `~/.claude/settings.json` (user):
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__aef-mcp__aef_refine_prompt",
+      "mcp__aef-mcp__aef_check_change"
+    ]
+  }
+}
+```
+
+Both tools only read, apart from `aef_check_change` running your build and tests when `SkipBuildAndTests` is not `"true"`.
+
 ## Use
 
 Work in Claude Code or Codex as usual. The agent sees the two tools and can call them itself; you can also ask for them directly:
